@@ -1,0 +1,25 @@
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+
+#VSCode
+.vscode/
+
+# Python development and host-side tests
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.coverage
+.venv/
+venv/
+
+# MicroPython build outputs
+*.mpy
+firmware.bin
+build/
+dist/
+
+# Editor and local tooling state
+.idea/
+*.log

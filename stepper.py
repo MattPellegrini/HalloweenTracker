@@ -24,9 +24,13 @@ class StepperAxis:
         self.last_step_us = time.ticks_us()
         self.step_interval_us = max(1, int(1000000 / self.step_rate))
         self.step_pin.value(0)
+        self.enabled = None
         self.set_enabled(False)
 
-    def set_enabled(self, enabled):
+    def set_enabled(self, enabled: bool):
+        if getattr(self, "enabled", None) == enabled:
+            return
+        self.enabled = enabled
         active = 0 if self.enable_active_low else 1
         inactive = 1 - active
         self.enable_pin.value(active if enabled else inactive)
@@ -35,7 +39,6 @@ class StepperAxis:
         target = round(degrees * self.steps_per_degree)
         self.target_steps = max(self.minimum_steps,
                                 min(self.maximum_steps, target))
-        self.set_enabled(self.target_steps != self.position_steps)
 
     def set_step_rate(self, steps_per_second):
         self.step_rate = max(1, min(self.max_step_rate, steps_per_second))
@@ -50,7 +53,6 @@ class StepperAxis:
 
         difference = self.target_steps - self.position_steps
         if difference == 0:
-            self.set_enabled(False)
             return
 
         if time.ticks_diff(now, self.last_step_us) < self.step_interval_us:

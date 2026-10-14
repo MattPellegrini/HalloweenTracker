@@ -158,12 +158,15 @@ The current workspace has new natural-motion code for two skulls that has NOT ye
 been deployed to the ESP32 or physically tested:
 
 - 1/8 microstepping doubles shaft speed versus 1/16 (0.225 deg/pulse).
-- A 2.5-degree start / 1.5-degree stop hysteresis deadband gives decisive
-  move-then-stop corrections: nothing moves until the smoothed error reaches
-  2.5 degrees (above LD2450 noise), then it corrects until below 1.5 degrees.
-  Continuous creeping near a small error floor was tried and felt jittery.
-  Bearing-rate feed-forward is gated off below 3 degrees of error.
-- Raw radar bearings feed a 250 ms exponential target smoother before the
+- A micro-hysteresis deadband of 2 microsteps (~0.45 deg at 1/8 microstepping)
+  replaces the old 2.5 deg ratchet. When standing still, it prevents the motor
+  from hunting back and forth over a single rounding digit. When moving beyond
+  2 microsteps, tracking is smooth and continuous down to 0 without snapping off.
+- The motor driver EN is kept active while the skull is tracking (awake).
+  Instead of cutting coil power and clunking on every move-stop, the TMC2209
+  automatically reduces current to IHOLD (390 mA) at rest. EN is only disabled
+  when entering the SLEEP / parked state or shutdown.
+- Raw radar bearings feed a 350 ms exponential target smoother before the
   stepper target is updated, softening 10 Hz sensor jumps.
 - STEP rate is primarily proportional to pointing error: 50 pps when the
   deadband activates, full 1600 pps at 12 degrees or more, with a 1.4 exponent.

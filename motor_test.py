@@ -1,10 +1,15 @@
-"""No-load motor test; verifies signal wiring and driver status, then spins each skull motor 360 degrees and back.
+"""No-load motor test; verifies signal wiring and driver status, spins each skull motor:
+1) 360 degrees forward and back at constant test speed,
+2) 30 degrees forward and back at minimum tracking speed,
+3) 360 degrees forward and back with slewed acceleration and deceleration
+   abiding by config (MIN_TRACKING_STEP_RATE -> MAX_STEP_RATE -> MIN_TRACKING_STEP_RATE via TRACKING_STEP_RATE_SLEW_PPS_S).
 
 Incorporates STEP/DIR line testing (via IOIN register readback while disabled)
 and driver enable/current/standstill status checks before and after motion.
 Pass '--check-only' or '--signals-only' on the command line to skip physical motion.
 """
 
+import math
 import sys
 import time
 from machine import Pin
@@ -15,6 +20,8 @@ from tmc2209 import REG_DRV_STATUS, REG_GLOBALSCALER, REG_IOIN, TMC2209
 
 TEST_STEP_PERIOD_US = 1000
 STEPS_PER_REVOLUTION = config.FULL_STEPS_PER_REVOLUTION * config.MICROSTEPS
+MIN_SPEED_STEP_PERIOD_US = int(1000000 / config.MIN_TRACKING_STEP_RATE)
+STEPS_30_DEG = round(STEPS_PER_REVOLUTION * 30.0 / 360.0)
 
 IOIN_ENN_BIT = 1 << 0
 IOIN_STEP_BIT = 1 << 7
@@ -181,6 +188,64 @@ def move_steps(
         time.sleep_us(delay_us)
 
 
+def move_steps_slewed(
+    step_pin,
+    direction_pin,
+    direction,
+    count,
+    min_rate=config.MIN_TRACKING_STEP_RATE,
+    max_rate=config.MAX_STEP_RATE,
+    slew_pps_s=config.TRACKING_STEP_RATE_SLEW_PPS_S,
+):
+    """Move steps with acceleration and deceleration ramping obeying min/max speed and slew."""
+    if count <= 0:
+        return
+    direction_pin.value(direction)
+    time.sleep_ms(20)
+
+    if slew_pps_s <= 0 or max_rate <= min_rate:
+        delay_us = max(1, int(1000000 / max_rate))
+        half_delay1 = delay_us // 2
+        half_delay2 = delay_us - half_delay1
+        for _ in range(count):
+            step_pin.value(1)
+            time.sleep_us(half_delay1)
+            step_pin.value(0)
+            time.sleep_us(half_delay2)
+        return
+
+    accel_steps = int((max_rate * max_rate - min_rate * min_rate) / (2.0 * slew_pps_s))
+    if accel_steps * 2 > count:
+        accel_steps = count // 2
+
+    ramp_delays_us = []
+    min_rate_sq = float(min_rate * min_rate)
+    two_a = 2.0 * slew_pps_s
+    for i in range(accel_steps):
+        rate = math.sqrt(min_rate_sq + two_a * i)
+        rate = max(float(min_rate), min(float(max_rate), rate))
+        ramp_delays_us.append(max(1, int(1000000.0 / rate)))
+
+    cruise_delay_us = max(1, int(1000000.0 / max_rate))
+    decel_start = count - accel_steps
+
+    for step_index in range(count):
+        if step_index < accel_steps:
+            period_us = ramp_delays_us[step_index]
+        elif step_index >= decel_start:
+            decel_index = count - 1 - step_index
+            period_us = ramp_delays_us[decel_index]
+        else:
+            period_us = cruise_delay_us
+
+        half_delay1 = period_us // 2
+        half_delay2 = period_us - half_delay1
+        step_pin.value(1)
+        time.sleep_us(half_delay1)
+        step_pin.value(0)
+        time.sleep_us(half_delay2)
+
+
 def main():
     check_only = any(
         arg in sys.argv for arg in ("--check-only", "--signals-only", "--no-motion")
@@ -206,6 +271,20 @@ def main():
 
     revolution_time_s = (STEPS_PER_REVOLUTION * TEST_STEP_PERIOD_US) / 1000000.0
     speed_deg_s = 360.0 / revolution_time_s if revolution_time_s > 0 else 0.0
+    min_speed_deg_s = (config.MIN_TRACKING_STEP_RATE * 360.0) / STEPS_PER_REVOLUTION
+    max_speed_deg_s = (config.MAX_STEP_RATE * 360.0) / STEPS_PER_REVOLUTION
+    min_speed_30_deg_time_s = STEPS_30_DEG / config.MIN_TRACKING_STEP_RATE
+
+    accel_steps = int(
+        (config.MAX_STEP_RATE**2 - config.MIN_TRACKING_STEP_RATE**2)
+        / (2.0 * config.TRACKING_STEP_RATE_SLEW_PPS_S)
+    )
+    accel_time_s = (
+        config.MAX_STEP_RATE - config.MIN_TRACKING_STEP_RATE
+    ) / config.TRACKING_STEP_RATE_SLEW_PPS_S
+    cruise_steps = max(0, STEPS_PER_REVOLUTION - 2 * accel_steps)
+    cruise_time_s = cruise_steps / config.MAX_STEP_RATE
+    slewed_360_time_s = (2.0 * accel_time_s) + cruise_time_s
 
     print(
         "Motor test: {} skull(s), {} steps per 360-deg revolution (1/{} microsteps)".format(
@@ -216,8 +295,22 @@ def main():
         print("Mode: CHECK ONLY (motion skipped; testing signals and enable states)")
     else:
         print(
-            "Speed: about {:.1f} degrees/second ({:.2f} s per 360-deg rotation)".format(
-                speed_deg_s, revolution_time_s
+            "Motion tests per skull:\n"
+            "  1) 360 deg constant: {:.1f} deg/s ({:.2f} s)\n"
+            "  2) 30 deg min speed: {:.1f} deg/s ({} pps, {:.2f} s)\n"
+            "  3) 360 deg slewed:   {} -> {} -> {} pps ({:.1f} to {:.1f} deg/s, slew {} pps/s, {:.2f} s)".format(
+                speed_deg_s,
+                revolution_time_s,
+                min_speed_deg_s,
+                config.MIN_TRACKING_STEP_RATE,
+                min_speed_30_deg_time_s,
+                config.MIN_TRACKING_STEP_RATE,
+                config.MAX_STEP_RATE,
+                config.MIN_TRACKING_STEP_RATE,
+                min_speed_deg_s,
+                max_speed_deg_s,
+                config.TRACKING_STEP_RATE_SLEW_PPS_S,
+                slewed_360_time_s,
             )
         )
     print("Keep motor shafts and linkages clear.\n")
@@ -262,8 +355,9 @@ def main():
                 fwd_dir = 1 if inverted else 0
                 rev_dir = 0 if inverted else 1
 
+                # Test 1: Constant-rate full revolution
                 print(
-                    "  Spinning 360 degrees forward ({} steps)...".format(
+                    "  [1/3] Spinning 360 degrees forward at constant test speed ({} steps)...".format(
                         STEPS_PER_REVOLUTION
                     )
                 )
@@ -273,11 +367,79 @@ def main():
                 time.sleep_ms(500)
 
                 print(
-                    "  Spinning 360 degrees back ({} steps)...".format(
+                    "  [1/3] Spinning 360 degrees back at constant test speed ({} steps)...".format(
                         STEPS_PER_REVOLUTION
                     )
                 )
                 move_steps(step_pin, dir_pin, rev_dir, STEPS_PER_REVOLUTION)
+
+                print("  Pausing 500 ms...")
+                time.sleep_ms(500)
+
+                # Test 2: Min-speed jog (30 degrees)
+                print(
+                    "  [2/3] Moving 30 degrees forward at min speed ({} pps, {} steps)...".format(
+                        config.MIN_TRACKING_STEP_RATE, STEPS_30_DEG
+                    )
+                )
+                move_steps(
+                    step_pin, dir_pin, fwd_dir, STEPS_30_DEG, MIN_SPEED_STEP_PERIOD_US
+                )
+
+                print("  Pausing 500 ms...")
+                time.sleep_ms(500)
+
+                print(
+                    "  [2/3] Moving 30 degrees back at min speed ({} pps, {} steps)...".format(
+                        config.MIN_TRACKING_STEP_RATE, STEPS_30_DEG
+                    )
+                )
+                move_steps(
+                    step_pin, dir_pin, rev_dir, STEPS_30_DEG, MIN_SPEED_STEP_PERIOD_US
+                )
+
+                print("  Pausing 500 ms...")
+                time.sleep_ms(500)
+
+                # Test 3: Slewed full revolution (abiding by min speed, max speed, slew rate)
+                print(
+                    "  [3/3] Full 360-deg rotation forward with slew ({} -> {} -> {} pps, {} steps)...".format(
+                        config.MIN_TRACKING_STEP_RATE,
+                        config.MAX_STEP_RATE,
+                        config.MIN_TRACKING_STEP_RATE,
+                        STEPS_PER_REVOLUTION,
+                    )
+                )
+                move_steps_slewed(
+                    step_pin,
+                    dir_pin,
+                    fwd_dir,
+                    STEPS_PER_REVOLUTION,
+                    min_rate=config.MIN_TRACKING_STEP_RATE,
+                    max_rate=config.MAX_STEP_RATE,
+                    slew_pps_s=config.TRACKING_STEP_RATE_SLEW_PPS_S,
+                )
+
+                print("  Pausing 500 ms...")
+                time.sleep_ms(500)
+
+                print(
+                    "  [3/3] Full 360-deg rotation back with slew ({} -> {} -> {} pps, {} steps)...".format(
+                        config.MIN_TRACKING_STEP_RATE,
+                        config.MAX_STEP_RATE,
+                        config.MIN_TRACKING_STEP_RATE,
+                        STEPS_PER_REVOLUTION,
+                    )
+                )
+                move_steps_slewed(
+                    step_pin,
+                    dir_pin,
+                    rev_dir,
+                    STEPS_PER_REVOLUTION,
+                    min_rate=config.MIN_TRACKING_STEP_RATE,
+                    max_rate=config.MAX_STEP_RATE,
+                    slew_pps_s=config.TRACKING_STEP_RATE_SLEW_PPS_S,
+                )
             else:
                 print("  [Check-only mode: motion skipped]")
 

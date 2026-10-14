@@ -141,6 +141,19 @@ class TargetSelectorTests(unittest.TestCase):
         self.assertTrue(update_deadband(1.6, True, 2.5, 1.5))
         self.assertFalse(update_deadband(1.5, True, 2.5, 1.5))
 
+    def test_micro_hysteresis_deadband_prevents_hunting_and_allows_smooth_tracking(self):
+        # 2 microsteps at 1/8 microstepping is 0.45 deg; 1 microstep is 0.225 deg.
+        start_deg = 0.45
+        stop_deg = 0.0
+        # 1 microstep error at rest: does not activate (prevents hunting over rounding noise)
+        self.assertFalse(update_deadband(0.225, False, start_deg, stop_deg))
+        # 2 microsteps error at rest: activates motion
+        self.assertTrue(update_deadband(0.45, False, start_deg, stop_deg))
+        # Once active, tracking continues smoothly even when error drops to 1 microstep
+        self.assertTrue(update_deadband(0.225, True, start_deg, stop_deg))
+        # Deactivates only when error drops to stop threshold (0.0 deg)
+        self.assertFalse(update_deadband(0.0, True, start_deg, stop_deg))
+
     def test_step_rate_slew_limits_acceleration_and_deceleration(self):
         self.assertEqual(slew_step_rate(100, 800, 100, 2400), 340)
         self.assertEqual(slew_step_rate(800, 100, 250, 2400), 200)
@@ -201,6 +214,48 @@ class TwoTargetSelectionTests(unittest.TestCase):
 
 
 class StepperTests(unittest.TestCase):
+    def test_enable_pin_controlled_explicitly_not_toggled_during_motion(self):
+        step_pin = FakePin()
+        direction_pin = FakePin()
+        enable_pin = FakePin()
+        with patch("stepper.time.ticks_us", side_effect=(0, 10000, 20000),
+                   create=True), patch(
+                       "stepper.time.ticks_diff",
+                       side_effect=lambda now, then: now - then,
+                       create=True):
+            # Active-low enable: disabled = 1, enabled = 0
+            axis = StepperAxis(step_pin, direction_pin, enable_pin, 3200,
+                               -60, 60, 100, enable_active_low=True,
+                               initial_degrees=0)
+            self.assertEqual(enable_pin.value(), 1)
+            self.assertFalse(axis.enabled)
+
+            # Enabling driver explicitly
+            axis.set_enabled(True)
+            self.assertEqual(enable_pin.value(), 0)
+            self.assertTrue(axis.enabled)
+
+            # set_target_degrees must NOT toggle EN
+            axis.set_target_degrees(1)
+            self.assertEqual(enable_pin.value(), 0)
+            self.assertTrue(axis.enabled)
+
+            # run() stepping must NOT toggle EN
+            axis.run()
+            self.assertEqual(enable_pin.value(), 0)
+            self.assertTrue(axis.enabled)
+
+            # When reaching target, run() must NOT toggle EN off
+            axis.set_target_degrees(0)
+            axis.run()
+            self.assertEqual(enable_pin.value(), 0)
+            self.assertTrue(axis.enabled)
+
+            # Disabling driver explicitly
+            axis.set_enabled(False)
+            self.assertEqual(enable_pin.value(), 1)
+            self.assertFalse(axis.enabled)
+
     def test_direction_can_be_inverted_for_pan_installation(self):
         step_pin = FakePin()
         direction_pin = FakePin()

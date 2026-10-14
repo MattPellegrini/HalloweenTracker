@@ -33,8 +33,10 @@ and NEMA17 motor originally allocated for tilt.
     3° of error to prevent radar noise from causing ticking.
   - A 250 ms low-pass target smoother filters raw radar coordinate fluctuations.
   - Slew rate limiting (4800 pps/s) and brake-before-reverse prevent skipped steps.
-  - A 2.5°/1.5° start/stop hysteresis deadband provides decisive move-then-stop
-    corrections without continuous hunting or buzzing.
+  - A 2-microstep (~0.45°) micro-hysteresis deadband prevents hunting over single
+    rounding digits at rest, while tracking smoothly and continuously when moving.
+  - EN remains enabled while awake; the TMC2209 drops silently to IHOLD (390 mA)
+    at rest with zero coil-snap clunking. EN is only disabled in SLEEP/parked state.
 - **Target Assignment**: Configurable via `TARGET_ASSIGNMENT_MODE` in `config.py`:
   - `nearest_two`: Skull 1 follows the closest target; Skull 2 follows the next
     closest target. Either skull idles/parks when fewer targets are present.
@@ -253,10 +255,12 @@ defined in `config.py`.
 - **Natural Motion Shaping**:
   - **1/8 Microsteps**: Provides 0.225° angular resolution while allowing fast,
     responsive head turns up to 360°/s at 1600 pps.
-  - **Hysteresis Deadband**: 2.5° start threshold / 1.5° stop threshold. The skull
-    remains completely still when small coordinate jitter occurs, then moves
-    smoothly once real motion exceeds 2.5°, stopping cleanly once error is within
-    1.5°.
+  - **Micro-Hysteresis Deadband**: 2 microsteps (~0.45°) start threshold / 0.0° stop threshold.
+    The skull remains still at rest without hunting over single rounding digits, then
+    tracks smoothly and continuously to the target without snapping off and on.
+  - **Quiet Holding**: The motor driver EN is kept asserted while awake. The TMC2209
+    drops silently to IHOLD (390 mA) at rest without coil-snap clunking, disabling EN
+    only when entering SLEEP / parked state or shutdown.
   - **Error-Scaled Velocity**: Speed scales with $(E / E_{\text{full}})^{1.4}$,
     ensuring rapid repositioning for distant targets and smooth deceleration as
     the skull comes on target.

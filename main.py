@@ -127,8 +127,9 @@ class Tracker:
                               (0, 0, 0))
         yaw = clamp(yaw, config.PAN_MIN_DEG, config.PAN_MAX_DEG)
         self.last_raw_yaw = yaw
+
         bearing_elapsed_ms = 0
-        if self.last_bearing_ms is not None:
+        if self.last_bearing_ms is not None and self.last_bearing_yaw is not None:
             bearing_elapsed_ms = time.ticks_diff(now_ms, self.last_bearing_ms)
             if bearing_elapsed_ms > 0:
                 yaw_rate = min(
@@ -140,9 +141,6 @@ class Tracker:
                     yaw_rate - self.filtered_yaw_rate)
         self.last_bearing_yaw = yaw
         self.last_bearing_ms = now_ms
-        self.smoothed_yaw = smooth_toward_target(
-            self.smoothed_yaw, yaw, bearing_elapsed_ms,
-            config.TRACKING_TARGET_SMOOTHING_MS)
 
     def update(self, now_ms, elapsed_ms):
         expired = (self.last_target_ms is None or
@@ -150,6 +148,7 @@ class Tracker:
                    config.TARGET_LOST_MS)
         if expired:
             self.current_target = None
+            self.last_raw_yaw = None
             self.last_bearing_yaw = None
             self.last_bearing_ms = None
             self.filtered_yaw_rate = 0.0
@@ -161,66 +160,107 @@ class Tracker:
                 print("{}: target lost; returning to park.".format(self.name))
         else:
             x_mm, y_mm, speed_cm_s, resolution_mm = self.current_target
-            target_yaw, _ = solve_angles(
-                x_mm, y_mm, 0,
-                (config.PAN_PIVOT_FROM_SENSOR_X_MM,
-                 config.PAN_PIVOT_FROM_SENSOR_Y_MM, 0),
-                (0, 0, 0))
-            target_yaw = clamp(target_yaw, config.PAN_MIN_DEG,
-                               config.PAN_MAX_DEG)
-            if self.smoothed_yaw is None:
-                self.smoothed_yaw = target_yaw
-            self.target_yaw = self.smoothed_yaw
+            target_yaw = self.last_raw_yaw
+            if target_yaw is None:
+                target_yaw, _ = solve_angles(
+                    x_mm, y_mm, 0,
+                    (config.PAN_PIVOT_FROM_SENSOR_X_MM,
+                     config.PAN_PIVOT_FROM_SENSOR_Y_MM, 0),
+                    (0, 0, 0))
+                target_yaw = clamp(target_yaw, config.PAN_MIN_DEG,
+                                   config.PAN_MAX_DEG)
+                self.last_raw_yaw = target_yaw
+
             if not self.awake:
                 set_eyes(self.eyes, config.EYE_RED)
                 self.awake = True
                 print("{}: target acquired x={} y={} mm; yaw={:.1f} deg".
-                      format(self.name, x_mm, y_mm, self.target_yaw))
+                      format(self.name, x_mm, y_mm, target_yaw))
+                if getattr(config, "ENABLE_TARGET_SMOOTHING", True):
+                    self.smoothed_yaw = target_yaw
+
+            if getattr(config, "ENABLE_TARGET_SMOOTHING", True):
+                if self.smoothed_yaw is None:
+                    self.smoothed_yaw = target_yaw
+                else:
+                    self.smoothed_yaw = smooth_toward_target(
+                        self.smoothed_yaw, target_yaw, elapsed_ms,
+                        config.TRACKING_TARGET_SMOOTHING_MS)
+                self.target_yaw = self.smoothed_yaw
+            else:
+                self.smoothed_yaw = target_yaw
+                self.target_yaw = target_yaw
 
         current_degrees = self.axis.position_steps / self.axis.steps_per_degree
         error_degrees = self.target_yaw - current_degrees
-        self.moving = update_deadband(
-            abs(error_degrees),
-            self.moving,
-            config.TRACKING_DEADBAND_START_DEG,
-            config.TRACKING_DEADBAND_STOP_DEG,
-        )
-        if self.moving:
-            desired_rate = tracking_step_rate(
-                error_degrees,
-                self.filtered_yaw_rate,
-                config.MIN_TRACKING_STEP_RATE,
-                config.MAX_STEP_RATE,
-                config.TRACKING_FULL_SPEED_ERROR_DEG,
+
+        if getattr(config, "ENABLE_DEADBAND", True):
+            self.moving = update_deadband(
+                abs(error_degrees),
+                self.moving,
+                config.TRACKING_DEADBAND_START_DEG,
                 config.TRACKING_DEADBAND_STOP_DEG,
-                config.TRACKING_ERROR_SPEED_EXPONENT,
-                self.axis.steps_per_degree,
-                config.TRACKING_FEEDFORWARD_GAIN,
             )
-            self.desired_rate = desired_rate
-            previous_difference = (self.axis.target_steps -
-                                   self.axis.position_steps)
-            reversing = (previous_difference != 0 and
-                         previous_difference * error_degrees < 0)
-            self.reversing = reversing
-            if reversing and self.axis.step_rate > config.MIN_TRACKING_STEP_RATE:
-                rate = slew_step_rate(self.axis.step_rate,
-                                      config.MIN_TRACKING_STEP_RATE,
-                                      elapsed_ms,
-                                      config.TRACKING_STEP_RATE_SLEW_PPS_S)
-                self.axis.set_step_rate(rate)
-                self.axis.set_target_degrees(current_degrees)
+            if self.axis.position_steps == round(self.target_yaw * self.axis.steps_per_degree):
+                self.moving = False
+        else:
+            # Without deadband: move whenever position differs from target
+            self.moving = (self.axis.position_steps !=
+                           round(self.target_yaw * self.axis.steps_per_degree))
+
+        if self.moving:
+            if getattr(config, "ENABLE_SPEED_SHAPING", True):
+                desired_rate = tracking_step_rate(
+                    error_degrees,
+                    self.filtered_yaw_rate,
+                    config.MIN_TRACKING_STEP_RATE,
+                    config.MAX_STEP_RATE,
+                    config.TRACKING_FULL_SPEED_ERROR_DEG,
+                    config.TRACKING_DEADBAND_STOP_DEG,
+                    config.TRACKING_ERROR_SPEED_EXPONENT,
+                    self.axis.steps_per_degree,
+                    config.TRACKING_FEEDFORWARD_GAIN,
+                )
             else:
-                rate = slew_step_rate(self.axis.step_rate, desired_rate,
-                                      elapsed_ms,
-                                      config.TRACKING_STEP_RATE_SLEW_PPS_S)
-                self.axis.set_step_rate(rate)
+                desired_rate = getattr(config, "TRACKING_BASE_STEP_RATE", 400)
+            self.desired_rate = desired_rate
+
+            if getattr(config, "ENABLE_RATE_SLEW", True):
+                previous_difference = (self.axis.target_steps -
+                                       self.axis.position_steps)
+                reversing = (previous_difference != 0 and
+                             previous_difference * error_degrees < 0)
+                self.reversing = reversing
+                if reversing and self.axis.step_rate > config.MIN_TRACKING_STEP_RATE:
+                    rate = slew_step_rate(self.axis.step_rate,
+                                          config.MIN_TRACKING_STEP_RATE,
+                                          elapsed_ms,
+                                          config.TRACKING_STEP_RATE_SLEW_PPS_S)
+                    self.axis.set_step_rate(rate)
+                    self.axis.set_target_degrees(current_degrees)
+                else:
+                    rate = slew_step_rate(self.axis.step_rate, desired_rate,
+                                          elapsed_ms,
+                                          config.TRACKING_STEP_RATE_SLEW_PPS_S)
+                    self.axis.set_step_rate(rate)
+                    self.axis.set_target_degrees(self.target_yaw)
+            else:
+                self.reversing = False
+                self.axis.set_step_rate(desired_rate)
                 self.axis.set_target_degrees(self.target_yaw)
         else:
             self.desired_rate = config.MIN_TRACKING_STEP_RATE
             self.reversing = False
             self.axis.set_step_rate(config.MIN_TRACKING_STEP_RATE)
-            self.axis.set_target_degrees(current_degrees)
+            if getattr(config, "ENABLE_DEADBAND", True):
+                self.axis.set_target_degrees(current_degrees)
+            else:
+                self.axis.set_target_degrees(self.target_yaw)
+
+        if self.awake or self.moving:
+            self.axis.set_enabled(True)
+        else:
+            self.axis.set_enabled(False)
 
     def format_frame_log(self, prefix, delta_steps, delta_deg):
         """Format a single-line status log for this frame."""
@@ -243,8 +283,8 @@ class Tracker:
         err_deg = self.target_yaw - cur_deg
         err_str = "err={:+5.1f}".format(err_deg)
 
-        step_str = "step={:+4d} ({:+5.1f}d)".format(delta_steps, delta_deg)
-        rate_str = "pps={:4d}".format(self.axis.step_rate)
+        step_str = "step={:+4d} ({:+5.1f}deg)".format(int(delta_steps), delta_deg)
+        rate_str = "pps={:4d}".format(int(self.axis.step_rate))
         brg_str = "brg={:4.1f}".format(self.filtered_yaw_rate)
 
         if self.awake:
@@ -265,7 +305,7 @@ class Tracker:
 
     def shutdown(self):
         self.step_pin.value(0)
-        self.enable_pin.value(1)
+        self.axis.set_enabled(False)
         set_eyes(self.eyes, config.EYE_OFF)
 
 
@@ -291,14 +331,28 @@ def main():
                           tx=config.RADAR_TX_PIN, rx=config.RADAR_RX_PIN)
         radar = LD2450Reader(radar_uart)
 
-        print("Trackers running: 1/{} microsteps, {}-{} pps, full speed at "
-              "{:.0f} deg error, deadband {:.1f}/{:.1f} deg.".format(
-                  config.MICROSTEPS, config.MIN_TRACKING_STEP_RATE,
-                  config.MAX_STEP_RATE, config.TRACKING_FULL_SPEED_ERROR_DEG,
-                  config.TRACKING_DEADBAND_START_DEG,
-                  config.TRACKING_DEADBAND_STOP_DEG))
-        print("Log columns: [#frame +dt_ms L:loops] Skull: tgt=(x,y,spd) "
-              "raw=deg sm=deg pos=deg err=deg step=N (deg) pps=rate brg=deg/s [STATE]")
+        features = []
+        if getattr(config, "ENABLE_TARGET_SMOOTHING", False):
+            features.append("smooth:{}ms".format(config.TRACKING_TARGET_SMOOTHING_MS))
+        if getattr(config, "ENABLE_DEADBAND", False):
+            features.append("deadband:{:.2f}/{:.2f}deg".format(
+                config.TRACKING_DEADBAND_START_DEG,
+                config.TRACKING_DEADBAND_STOP_DEG))
+        if getattr(config, "ENABLE_SPEED_SHAPING", False):
+            features.append("speed-shaping:{}-{}pps".format(
+                config.MIN_TRACKING_STEP_RATE, config.MAX_STEP_RATE))
+        else:
+            features.append("base-speed:{}pps".format(
+                getattr(config, "TRACKING_BASE_STEP_RATE", 400)))
+        if getattr(config, "ENABLE_RATE_SLEW", False):
+            features.append("slew:{}pps/s".format(
+                config.TRACKING_STEP_RATE_SLEW_PPS_S))
+        active_str = ", ".join(features) if features else "pure direct baseline"
+        print("Trackers running: 1/{} microsteps ({})".format(
+            config.MICROSTEPS, active_str))
+        if config.ENABLE_FRAME_LOGGING:
+            print("Log columns: [#frame +dt_ms L:loops] Skull: tgt=(x,y,spd) "
+                  "raw=deg sm=deg pos=deg err=deg step=N (deg) pps=rate brg=deg/s [STATE]")
 
         radar_frame_count = 0
         last_frame_ms = time.ticks_ms()
@@ -335,12 +389,14 @@ def main():
                 for tracker in trackers:
                     tracker.update(now_ms, update_elapsed_ms)
 
-                prefix = "[#{:04d} +{:3d}ms L:{:2d}]".format(
-                    radar_frame_count, frame_dt_ms, loop_iterations)
+                if config.ENABLE_FRAME_LOGGING:
+                    decimation = getattr(config, "FRAME_LOG_DECIMATION", 1)
+                    if decimation <= 1 or (radar_frame_count % decimation) == 0:
+                        prefix = "[#{:04d} +{:3d}ms L:{:2d}]".format(
+                            radar_frame_count, frame_dt_ms, loop_iterations)
+                        for tracker, (steps, deg) in zip(trackers, moves):
+                            print(tracker.format_frame_log(prefix, steps, deg))
                 loop_iterations = 0
-
-                for tracker, (steps, deg) in zip(trackers, moves):
-                    print(tracker.format_frame_log(prefix, steps, deg))
 
             update_elapsed_ms = time.ticks_diff(now_ms, last_update_ms)
             if update_elapsed_ms >= config.TRACKING_UPDATE_MS:
@@ -350,7 +406,15 @@ def main():
 
             for tracker in trackers:
                 tracker.run()
-            time.sleep_ms(1)
+
+            any_motion = any(
+                tracker.moving
+                or tracker.axis.position_steps != tracker.axis.target_steps
+                or tracker.axis.step_high
+                for tracker in trackers
+            )
+            if not any_motion:
+                time.sleep_ms(1)
     finally:
         for tracker in trackers:
             tracker.shutdown()

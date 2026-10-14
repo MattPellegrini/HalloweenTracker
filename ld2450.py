@@ -11,14 +11,14 @@ def _signed_magnitude(raw):
     return magnitude if raw & 0x8000 else -magnitude
 
 
-def decode_frame(frame):
-    """Return up to three (x_mm, y_mm, speed_cm_s, resolution_mm) tuples."""
+def decode_frame_slots(frame):
+    """Return three slot entries, each (x, y, speed, resolution) or None."""
     if len(frame) != FRAME_LENGTH:
         raise ValueError("LD2450 frame must be 30 bytes")
     if frame[:4] != FRAME_HEADER or frame[-2:] != FRAME_FOOTER:
         raise ValueError("invalid LD2450 frame markers")
 
-    targets = []
+    slots = []
     for index in range(TARGET_COUNT):
         offset = 4 + index * 8
         x_raw = frame[offset] | (frame[offset + 1] << 8)
@@ -29,9 +29,17 @@ def decode_frame(frame):
         x_mm = _signed_magnitude(x_raw)
         y_mm = _signed_magnitude(y_raw)
         if x_mm == 0 and y_mm == 0 and speed_raw == 0 and resolution == 0:
-            continue
-        targets.append((x_mm, y_mm, _signed_magnitude(speed_raw), resolution))
-    return targets
+            slots.append(None)
+        else:
+            slots.append((x_mm, y_mm, _signed_magnitude(speed_raw),
+                          resolution))
+    return slots
+
+
+def decode_frame(frame):
+    """Return up to three (x_mm, y_mm, speed_cm_s, resolution_mm) tuples."""
+    return [target for target in decode_frame_slots(frame)
+            if target is not None]
 
 
 class LD2450Reader:
@@ -61,4 +69,4 @@ class LD2450Reader:
 
         frame = bytes(self.buffer[:FRAME_LENGTH])
         self.buffer = bytearray(self.buffer[FRAME_LENGTH:])
-        return decode_frame(frame)
+        return decode_frame_slots(frame)

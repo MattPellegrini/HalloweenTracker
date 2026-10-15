@@ -80,6 +80,12 @@ TRACKING_RATE_FILTER_ALPHA = 0.35         # Low-pass filter weight for target an
 TRACKING_TARGET_SMOOTHING_MS = 350        # Time constant (ms) for exponential target angle smoothing
 MAX_TRACKING_BEARING_RATE_DEG_S = 45.0    # Clamp on target angular speed to reject sensor noise jumps
 
+# TODO test out these for snappier motion tuning (all or some subset at a time)
+# TRACKING_TARGET_SMOOTHING_MS = 150        # Cuts lag by more than half (~150 ms vs 350 ms)
+# MAX_TRACKING_BEARING_RATE_DEG_S = 90.0    # Allows tracking fast swings up close
+# TRACKING_FEEDFORWARD_GAIN = 0.85          # Closer to 1:1 speed matching
+# TRACKING_STEP_RATE_SLEW_PPS_S = 7200      # Quicker motor spin-up (~0.22s to max speed
+
 # Pan angles are relative to each skull's forward-facing pose. With the current
 # radar mounting, +X is toward the sensor's left. Positive yaw points to +X.
 PAN_MIN_DEG = -60.0             # Mechanical/software pan limit to the right (deg)

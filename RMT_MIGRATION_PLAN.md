@@ -2,7 +2,7 @@
 
 ## Executive Summary
 
-This document specifies the migration of the two Halloween skull pan stepper axes from CPU-bound GPIO bit-banging to the ESP32 hardware RMT (Remote Control) peripheral, paired with an upgrade of the BTT TMC2209 V1.3 stepper drivers from 1/8 to 1/16 microstepping.
+This document specifies the migration of the two Halloween skull yaw stepper axes from CPU-bound GPIO bit-banging to the ESP32 hardware RMT (Remote Control) peripheral, paired with an upgrade of the BTT TMC2209 V1.3 stepper drivers from 1/8 to 1/16 microstepping.
 
 Key architectural benefits:
 

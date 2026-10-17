@@ -389,7 +389,7 @@ def main():
                 "\n[{}/{}] Testing {}:".format(index, len(tracker_controls), tracker_cfg["name"])
             )
 
-            # 1. STEP/DIR Signal line test while disabled (from pan_signal_test.py)
+            # 1. STEP/DIR Signal line test while disabled
             if driver is not None:
                 print("  Checking STEP/DIR electrical signals via IOIN readback (disabled)...")
                 signals_ok = verify_signal_wiring(driver, step_pin, dir_pin)
@@ -401,7 +401,7 @@ def main():
                     )
                 read_driver_status(driver, "pre-enable status")
 
-            # 2. Driver enable & current status check (from pan_enable_test.py)
+            # 2. Driver enable & current status check
             print("  Enabling driver...")
             enable_pin.value(enable_active)
             time.sleep_ms(100)

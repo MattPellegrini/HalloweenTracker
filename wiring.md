@@ -11,15 +11,15 @@ positions.
 | ------------------- | ---------: | ----------------------------------------- |
 | LD2450 UART2 RX     |         16 | LD2450 TX                                 |
 | LD2450 UART2 TX     |         17 | LD2450 RX (optional for receive-only use) |
-| Pan STEP            |         25 | Pan TMC2209 STEP                          |
-| Pan DIR             |         26 | Pan TMC2209 DIR                           |
-| Pan enable          |         27 | Pan TMC2209 EN/ENN                        |
+| Yaw STEP            |         25 | Yaw TMC2209 STEP                          |
+| Yaw DIR             |         26 | Yaw TMC2209 DIR                           |
+| Yaw enable          |         27 | Yaw TMC2209 EN/ENN                        |
 | Driver logic supply |        3V3 | Both BTT TMC2209 V1.3 VIO pins            |
 | Tilt STEP           |         18 | Tilt TMC2209 STEP                         |
 | Tilt DIR            |         19 | Tilt TMC2209 DIR                          |
 | Tilt enable         |         21 | Tilt TMC2209 EN/ENN                       |
 | NeoPixel data       |         13 | First eye LED DIN                         |
-| Future pan DIAG     |         32 | Pan BTT TMC2209 V1.3 DIAG (not used yet)  |
+| Future yaw DIAG     |         32 | Yaw BTT TMC2209 V1.3 DIAG (not used yet)  |
 | Future tilt DIAG    |         33 | Tilt BTT TMC2209 V1.3 DIAG (not used yet) |
 | TMC driver UART RX  |         22 | Shared BTT RX/UART bus (direct)           |
 | TMC driver UART TX  |         23 | Shared BTT RX/UART bus through 1 kOhm     |
@@ -37,10 +37,10 @@ LD2450 RX <--------------| GPIO17 (UART2 TX)  |  optional
 LD2450 GND --------------| GND                |
 LD2450 VCC <-------------| external buck +5V  |
                          |                    |
-Pan STEP/DIR/EN <--------| GPIO25/26/27       |
+Yaw STEP/DIR/EN <--------| GPIO25/26/27       |
 Tilt STEP/DIR/EN <-------| GPIO18/19/21       |
 Eye LED DIN <------------| GPIO13             |
-GPIO22 UART RX <----------+---- shared bus ----> BTT pan driver RX/UART
+GPIO22 UART RX <----------+---- shared bus ----> BTT yaw driver RX/UART
 GPIO23 UART TX ---------[1 kOhm]---+
                          | 3V3                |------> both TMC2209 VIO
                          +----+----------+----+
@@ -48,7 +48,7 @@ GPIO23 UART TX ---------[1 kOhm]---+
                               |          +------ common ground
                               |                    |
                     +---------v------+    +--------v-------+
-                    | Pan BTT 1.3    |    | Tilt BTT 1.3   |
+                    | Yaw BTT 1.3    |    | Tilt BTT 1.3   |
                     | STEP DIR EN    |    | STEP DIR EN    |
                     | VM VIO GND     |    | VM VIO GND     |
                     +--+----+--------+    +--+----+--------+
@@ -60,7 +60,7 @@ GPIO23 UART TX ---------[1 kOhm]---+
                   buck OUT+ 5V ----------> ESP32 VIN and LD2450 VCC
                   buck OUT- GND ----------> ESP32 GND and LD2450 GND
                        |                         |
-                 Pan NEMA17                 Tilt NEMA17
+                 Yaw NEMA17                 Tilt NEMA17
 
 ESP32 GPIO13 --[level shifter recommended]--> DIN [Eye 1] DOUT --> DIN [Eye 2]
 LED 5V supply --------------------------------------> both LED +5V pins
@@ -104,10 +104,10 @@ any later LEDs); verify its output is 5 V before connecting it.
   module's separate `TX` pad and `CLK` unconnected. Do not bridge R10; the
   manual shows that as an alternate pin assignment. DIAG is reserved for future
   homing and is not used yet.
-- Both drivers use the shared UART bus. Leave pan MS1/MS2 low/open (address
+- Both drivers use the shared UART bus. Leave yaw MS1/MS2 low/open (address
   0), and strap tilt MS1 to VIO (3V3) and MS2 to GND (address 1). With
   `MSTEP_REG_SELECT` enabled, these pins select the UART address. The tilt
-  diagnostics address only driver 1 and do not step the pan motor. Verify both
+  diagnostics address only driver 1 and do not step the yaw motor. Verify both
   addresses before enabling VM or running either motor test.
 - Keep motor VM off until UART readback confirms the current and microstep
   settings. Never unplug the motor while the driver is powered.

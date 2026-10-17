@@ -1,16 +1,16 @@
 # Multi-Target Radar Trackers
 
 MicroPython project for an ESP32-WROOM-32E/uPesy board, Hi-Link LD2450 radar,
-two BTT TMC2209 V1.3 stepper drivers, two NEMA17 pan motors, and two pairs of
+two BTT TMC2209 V1.3 stepper drivers, two NEMA17 yaw motors, and two pairs of
 NeoPixel indicator LEDs — one motor + one LED pair per tracker prop. Each tracker parks
 facing forward with LEDs off, wakes with illuminated indicators when the radar detects a person,
-and pans independently to follow its assigned target.
+and rotates independently in yaw to follow its assigned target.
 
 ## Current Status
 
-The project architecture is **two independent 1-axis (pan-only) trackers**
+The project architecture is **two independent 1-axis (yaw-only) trackers**
 sharing a single ESP32 MCU, one Hi-Link LD2450 mmWave radar, and one shared-wire
-TMC2209 UART bus. The earlier single 2-axis (pan/tilt) prototype was
+TMC2209 UART bus. The earlier single 2-axis (yaw/tilt) prototype was
 pivoted to this dual 1-axis layout; the second tracker reuses the driver, wiring,
 and NEMA17 motor originally allocated for tilt.
 
@@ -191,7 +191,7 @@ while 12 V VM is energized.
 | `config.py`                         | Central configuration: hardware pin map (`TRACKERS`), UART baud rates, microstepping, step rates, angular limits, geometry offsets, and target assignment modes.                                                                                                          | Imported by scripts; edit to tune prop parameters.                                                                                                                                                                    |
 | `ld2450.py`                         | Streaming LD2450 radar frame parser supporting compact valid lists and indexed 3-slot target frames.                                                                                                                                                                      | Imported by `radar_test.py` and `main.py`.                                                                                                                                                                            |
 | `tmc2209.py`                        | TMC2209 UART driver: CRC calculation, packet framing, register read/write, IFCNT write verification, current scaling, and microstepping helpers.                                                                                                                          | Imported by motor setup and controller scripts.                                                                                                                                                                       |
-| `aiming.py`                         | Geometry calculations: solves pan yaw angle from target (X, Y) coordinates relative to prop pivot and applies travel limits.                                                                                                                                              | Imported by `main.py`; unit tested.                                                                                                                                                                                   |
+| `aiming.py`                         | Geometry calculations: solves yaw angle from target (X, Y) coordinates relative to prop pivot and applies travel limits.                                                                                                                                                  | Imported by `main.py`; unit tested.                                                                                                                                                                                   |
 | `tracking.py`                       | Target selection logic (`choose_two_targets`), start/stop deadband hysteresis, exponential error-shaped velocity, bearing rate feed-forward, target smoothing, and slew rate limiting.                                                                                    | Imported by `main.py`; unit tested.                                                                                                                                                                                   |
 | `stepper.py`                        | Non-blocking STEP/DIR stepper axis controller with hardware ESP32 RMT pulse generation, angle tracking, and soft limits.                                                                                                                                                  | Imported by `main.py`.                                                                                                                                                                                                |
 | `tests/test_protocol_and_aiming.py` | Host unit test suite (32 tests) covering LD2450 parsing, 3-slot decoding, target assignment, aiming geometry, motion shaping, RMT pulse generation, and TMC2209 UART.                                                                                                     | Run on host: `./venv/bin/python -m unittest discover -s tests`.                                                                                                                                                       |
@@ -278,4 +278,4 @@ defined in `config.py`.
   `POSITION_MODE = "assume"` requires trackers to be physically positioned facing
   straight forward (0.0° yaw) before powering on. Limit switches and StallGuard
   sensorless homing are not implemented. Angle travel is software-clamped to
-  `PAN_MIN_DEG` (-60.0°) and `PAN_MAX_DEG` (+60.0°).
+  each tracker's configured `yaw_min_deg` and `yaw_max_deg` (`MIN_YAW_DEG` and `MAX_YAW_DEG`).

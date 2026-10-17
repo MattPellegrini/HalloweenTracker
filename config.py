@@ -7,7 +7,7 @@ RADAR_TX_PIN = 17               # ESP32 TX pin to radar RX (optional)
 RADAR_RX_PIN = 16               # ESP32 RX pin from radar TX (primary data stream)
 RADAR_BAUDRATE = 256000         # LD2450 factory baud rate
 
-# BTT TMC2209 V1.3 STEP/DIR control. Tracker 2's pan motor reuses STEP 18 / DIR 19 / EN 21.
+# BTT TMC2209 V1.3 STEP/DIR control. Tracker 2's yaw motor reuses STEP 18 / DIR 19 / EN 21.
 # Active-low enable: True pulls EN low (0 V) to enable motor coils.
 ENABLE_ACTIVE_LOW = True
 
@@ -18,27 +18,27 @@ TMC_UART_TX_PIN = 23            # ESP32 TX through 1 kOhm resistor to shared lin
 TMC_UART_ID = 1                 # Hardware UART peripheral ID on ESP32
 TMC_UART_BAUDRATE = 115200      # Baud rate for TMC2209 register reads/writes
 
-# Pan angles are relative to each tracker's forward-facing pose. With the current
+# Yaw angles are relative to each tracker's forward-facing pose. With the current
 # radar mounting, +X is toward the sensor's left. Positive yaw points to +X.
-MIN_YAW_DEG = -90.0             # Default mechanical/software pan limit to the right (deg)
-MAX_YAW_DEG = 90.0              # Default mechanical/software pan limit to the left (deg)
+MIN_YAW_DEG = -90.0             # Default mechanical/software yaw limit to the right (deg)
+MAX_YAW_DEG = 90.0              # Default mechanical/software yaw limit to the left (deg)
 PARK_YAW_DEG = 0.0              # Default resting/parked yaw angle (deg, facing center)
 
-# Two prop/gimbal trackers. Each entry is one pan motor plus one NeoPixel indicator pair.
+# Two prop/gimbal trackers. Each entry is one yaw motor plus one NeoPixel indicator pair.
 # Per-motor / per-tracker pivot offsets from the radar sensor:
-#   pan_pivot_x_mm: Lateral offset of pan pivot from radar (+X = sensor left)
-#   pan_pivot_y_mm: Forward offset of pan pivot from radar (+Y = forward)
-#   pan_min_deg: Mechanical/software pan limit to the right (deg)
-#   pan_max_deg: Mechanical/software pan limit to the left (deg)
+#   yaw_pivot_x_mm: Lateral offset of yaw pivot from radar (+X = sensor left)
+#   yaw_pivot_y_mm: Forward offset of yaw pivot from radar (+Y = forward)
+#   yaw_min_deg: Mechanical/software yaw limit to the right (deg)
+#   yaw_max_deg: Mechanical/software yaw limit to the left (deg)
 #
 # Note on Z offset:
 #   There is no Z (vertical) offset variable because the LD2450 is a 2D planar
 #   radar (detecting only X and Y coordinates in the horizontal detection plane),
-#   and each tracker is currently configured for 1-axis horizontal pan (yaw) rotation.
+#   and each tracker is currently configured for 1-axis horizontal yaw rotation.
 #   In horizontal planar tracking, the line-of-sight yaw angle is determined solely
 #   by relative X and Y positions: atan2(dx, dy). Any vertical (Z) elevation
-#   difference between the radar plane and the pan pivot has zero geometric effect
-#   on the yaw angle. (A Z offset would only be relevant if 2-axis pan/tilt
+#   difference between the radar plane and the yaw pivot has zero geometric effect
+#   on the yaw angle. (A Z offset would only be relevant if 2-axis yaw/tilt
 #   mechanisms were implemented to compute pitch/elevation angles).
 TRACKERS = (
     {
@@ -51,10 +51,10 @@ TRACKERS = (
         "direction_inverted": False,
         "run_current_ma": 770,
         "hold_current_ma": 390,
-        "pan_pivot_x_mm": 0.0,
-        "pan_pivot_y_mm": 0.0,
-        "pan_min_deg": MIN_YAW_DEG,
-        "pan_max_deg": MAX_YAW_DEG,
+        "yaw_pivot_x_mm": 0.0,
+        "yaw_pivot_y_mm": 0.0,
+        "yaw_min_deg": MIN_YAW_DEG,
+        "yaw_max_deg": MAX_YAW_DEG,
     },
     {
         "name": "Tracker 2",
@@ -66,10 +66,10 @@ TRACKERS = (
         "direction_inverted": False,
         "run_current_ma": 770,
         "hold_current_ma": 390,
-        "pan_pivot_x_mm": 0.0,
-        "pan_pivot_y_mm": 0.0,
-        "pan_min_deg": MIN_YAW_DEG,
-        "pan_max_deg": MAX_YAW_DEG,
+        "yaw_pivot_x_mm": 0.0,
+        "yaw_pivot_y_mm": 0.0,
+        "yaw_min_deg": MIN_YAW_DEG,
+        "yaw_max_deg": MAX_YAW_DEG,
     },
 )
 
@@ -144,7 +144,8 @@ RMT_BURST_SLICE_MS = 15         # Non-blocking slice duration (ms) per RMT pulse
 #                   an empty slot parks that tracker.
 TARGET_ASSIGNMENT_MODE = "fixed_slot"
 
-# "assume" skips homing. Physically place each pan axis at this angle before
+# "assume" skips homing. Physically place each yaw axis at this angle before
 # power-up. Other modes stay locked out until homing code is implemented.
 POSITION_MODE = "assume"
-STARTUP_PAN_DEG = PARK_YAW_DEG  # Initial pan angle assumed at MCU power-up
+STARTUP_YAW_DEG = PARK_YAW_DEG  # Initial yaw angle assumed at MCU power-up
+

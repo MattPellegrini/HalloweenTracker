@@ -23,8 +23,8 @@ flowchart TD
     end
 
     subgraph ACTUATORS ["Outputs & Actuators"]
-        M1["Tracker 1 Pan Stepper\n(1/16 microsteps, RMT pin 25)"]
-        M2["Tracker 2 Pan Stepper\n(1/16 microsteps, RMT pin 18)"]
+        M1["Tracker 1 Yaw Stepper\n(1/16 microsteps, RMT pin 25)"]
+        M2["Tracker 2 Yaw Stepper\n(1/16 microsteps, RMT pin 18)"]
         LED1["Tracker 1 Eye/Status LEDs\n(NeoPixel pin 13)"]
         LED2["Tracker 2 Eye/Status LEDs\n(NeoPixel pin 14)"]
     end
@@ -108,7 +108,7 @@ sequenceDiagram
      - `nearest_two`: Valid targets within `[300 mm, 6000 mm]` are sorted by range; Tracker 1 gets the closest, Tracker 2 gets the next closest.
   2. **Radar Frame Handler (`tracker.on_radar_frame`)**:
      - Updates `current_target` and refreshes `last_target_ms` (preventing target loss timeout).
-     - Solves geometric line-of-sight yaw angle using `aiming.solve_yaw` and clamps to `[PAN_MIN_DEG, PAN_MAX_DEG]`.
+     - Solves geometric line-of-sight yaw angle using `aiming.solve_yaw` and clamps to each tracker's configured `[yaw_min_deg, yaw_max_deg]` limits.
      - Computes target angular speed (bearing rate in deg/s) and applies a low-pass filter (`filtered_yaw_rate`) for feed-forward pacing.
   3. **Immediate Update**: Runs `tracker.update()` immediately to incorporate fresh radar coordinates without waiting for the next periodic tick.
 
@@ -141,9 +141,10 @@ To guarantee smooth acceleration, deceleration, and responsive target loss detec
    - Restricts acceleration and deceleration to `TRACKING_STEP_RATE_SLEW_PPS_S` (14,400 pps/s).
    - **Brake-Before-Reverse**: If commanded to change direction while moving, decelerates to `MIN_TRACKING_STEP_RATE` (35 pps) before reversing direction, preventing step loss.
 7. **Coil Power Management**:
-   - Enables driver coils (`set_enabled(True)`) while awake or moving.
-   - When stationary while awake, TMC2209 automatically drops current to `IHOLD` (390 mA RMS) with zero clicking or snap.
-   - Disables driver coils (`set_enabled(False)`) only when fully parked in SLEEP state to eliminate standby heat.
+   - Enables driver coils (`set_enabled(True)`) upon driver initialization and keeps them engaged continuously.
+   - When stationary (idle or tracking), TMC2209 automatically drops current to `IHOLD` (390 mA RMS) with zero clicking or snap.
+   - Prevents open-loop step loss and calibration drift caused by wind, cable tension, or prop imbalance while maintaining low thermal dissipation (~25% of run power).
+   - Disables driver coils (`set_enabled(False)`) only on clean program shutdown.
 
 ### Stage C: Stepper Hardware Pulse Slicing (`tracker.run()`)
 

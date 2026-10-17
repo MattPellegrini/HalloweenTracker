@@ -1,6 +1,6 @@
 """LD2450-tracked multi-target tracker controller for ESP32 MicroPython.
 
-Each prop is a Tracker: one pan stepper axis plus one NeoPixel indicator pair.
+Each prop is a Tracker: one yaw stepper axis plus one NeoPixel indicator pair.
 Tracker 1 follows the nearest valid radar target, tracker 2 the next-nearest.
 """
 
@@ -91,7 +91,7 @@ def configure_driver(driver, name, run_current_ma, hold_current_ma):
 
 
 class Tracker:
-    """Controls one tracker prop: pan stepper axis, status LEDs, and tracking pipeline.
+    """Controls one tracker prop: yaw stepper axis, status LEDs, and tracking pipeline.
 
     A Tracker encapsulates all motion, LED state, target filtering, and position
     history for a single tracker. Each instance maintains:
@@ -115,10 +115,18 @@ class Tracker:
                                       config.NEOPIXEL_COUNT)
         set_eyes(self.eyes, config.EYE_OFF)
 
-        # Prop geometry: position of this motor's pan axis relative to the radar.
+        # Prop geometry: position of this motor's yaw axis relative to the radar.
         # (+X = sensor left, +Y = forward into detection zone)
-        self.pan_pivot_x_mm = tracker_cfg.get("pan_pivot_x_mm", 0.0)
-        self.pan_pivot_y_mm = tracker_cfg.get("pan_pivot_y_mm", 0.0)
+        self.yaw_pivot_x_mm = tracker_cfg.get(
+            "yaw_pivot_x_mm", tracker_cfg.get("yaw_pivot_x_mm", 0.0))
+        self.yaw_pivot_y_mm = tracker_cfg.get(
+            "yaw_pivot_y_mm", tracker_cfg.get("yaw_pivot_y_mm", 0.0))
+        self.yaw_min_deg = tracker_cfg.get(
+            "yaw_min_deg", tracker_cfg.get(
+                "yaw_min_deg", getattr(config, "MIN_YAW_DEG", -90.0)))
+        self.yaw_max_deg = tracker_cfg.get(
+            "yaw_max_deg", tracker_cfg.get(
+                "yaw_max_deg", getattr(config, "MAX_YAW_DEG", 90.0)))
 
         # Motion axis with ESP32 hardware RMT pulse generation:
         steps_per_revolution = (config.FULL_STEPS_PER_REVOLUTION *
@@ -128,11 +136,11 @@ class Tracker:
             self.direction_pin,
             self.enable_pin,
             steps_per_revolution,
-            config.PAN_MIN_DEG,
-            config.PAN_MAX_DEG,
+            self.yaw_min_deg,
+            self.yaw_max_deg,
             config.MAX_STEP_RATE,
             config.ENABLE_ACTIVE_LOW,
-            config.STARTUP_PAN_DEG,
+            getattr(config, "STARTUP_YAW_DEG", getattr(config, "STARTUP_YAW_DEG", config.PARK_YAW_DEG)),
             tracker_cfg["direction_inverted"],
             rmt_resolution_hz=getattr(config, "RMT_RESOLUTION_HZ", 1000000),
             pulse_width_us=getattr(config, "RMT_PULSE_WIDTH_US", 10),
@@ -140,7 +148,7 @@ class Tracker:
         )
 
         # --- Motion & Alertness State Flags ---
-        # self.moving: True when pan motor is actively commanded to step toward target_yaw.
+        # self.moving: True when yaw motor is actively commanded to step toward target_yaw.
         # Managed by the deadband hysteresis (starts moving if error >= START_DEG,
         # stops when error <= STOP_DEG or exact target step reached).
         self.moving = False
@@ -213,8 +221,8 @@ class Tracker:
 
         # Compute geometric yaw angle to the target
         yaw = solve_yaw(target[0], target[1],
-                        self.pan_pivot_x_mm, self.pan_pivot_y_mm)
-        yaw = clamp(yaw, config.PAN_MIN_DEG, config.PAN_MAX_DEG)
+                        self.yaw_pivot_x_mm, self.yaw_pivot_y_mm)
+        yaw = clamp(yaw, self.yaw_min_deg, self.yaw_max_deg)
         self.last_raw_yaw = yaw
 
         # Calculate target angular speed (bearing rate in deg/s) for feed-forward
@@ -248,8 +256,9 @@ class Tracker:
           4. Speed Shaping & Slew: If moving, compute velocity-profiled step rate
              (E^1.4 + feedforward). Slew acceleration/deceleration to protect against
              missed steps, and decelerate before reversing direction.
-          5. Coil Power: Enable stepper driver coils while awake or moving; disable
-             coils when fully parked to save power and eliminate motor heat.
+          5. Coil Power: Keep stepper driver coils continuously energized while
+             running so holding torque locks position against wind or mass imbalance.
+             When stationary, TMC2209 automatically drops current to IHOLD.
         """
         expired = (self.last_target_ms is None or
                    time.ticks_diff(now_ms, self.last_target_ms) >
@@ -274,9 +283,9 @@ class Tracker:
             if target_yaw is None:
                 target_yaw = solve_yaw(
                     x_mm, y_mm,
-                    self.pan_pivot_x_mm, self.pan_pivot_y_mm)
-                target_yaw = clamp(target_yaw, config.PAN_MIN_DEG,
-                                   config.PAN_MAX_DEG)
+                    self.yaw_pivot_x_mm, self.yaw_pivot_y_mm)
+                target_yaw = clamp(target_yaw, self.yaw_min_deg,
+                                   self.yaw_max_deg)
                 self.last_raw_yaw = target_yaw
 
             if not self.awake:
@@ -375,12 +384,9 @@ class Tracker:
             else:
                 self.axis.set_target_degrees(self.target_yaw)
 
-        # Coil energization: keep coils engaged while awake or moving.
-        # When awake at rest, TMC2209 automatically drops to IHOLD current silently.
-        if self.awake or self.moving:
-            self.axis.set_enabled(True)
-        else:
-            self.axis.set_enabled(False)
+        # Coil energization: keep coils engaged continuously. TMC2209 automatically drops
+        # to silent IHOLD current when stationary, locking position against wind/imbalance.
+        self.axis.set_enabled(True)
 
     def run(self):
         """Dispatch hardware RMT pulse burst slice or bit-bang fallback step."""
@@ -396,8 +402,8 @@ def main():
     """Main program entry point: initialize hardware and run real-time tracking loop."""
     if config.POSITION_MODE != "assume":
         raise RuntimeError("selected position mode is not implemented")
-    print("Startup pose: every tracker pan at {} deg".format(
-        config.STARTUP_PAN_DEG))
+    print("Startup pose: every tracker yaw at {} deg".format(
+        getattr(config, "STARTUP_YAW_DEG", getattr(config, "STARTUP_YAW_DEG", config.PARK_YAW_DEG))))
 
     trackers = [Tracker(tracker_cfg) for tracker_cfg in config.TRACKERS]
     tmc_uart = None
@@ -410,6 +416,11 @@ def main():
         for tracker_cfg in config.TRACKERS:
             configure_driver(drivers[tracker_cfg["name"]], tracker_cfg["name"],
                              tracker_cfg["run_current_ma"], tracker_cfg["hold_current_ma"])
+
+        # Enable coils now that drivers are configured with digital currents;
+        # coils remain energized continuously (holding at IHOLD when stationary) to lock position.
+        for tracker in trackers:
+            tracker.axis.set_enabled(True)
 
         # 2. Open LD2450 radar UART and initialize streaming reader
         radar_uart = UART(config.RADAR_UART_ID, baudrate=config.RADAR_BAUDRATE,

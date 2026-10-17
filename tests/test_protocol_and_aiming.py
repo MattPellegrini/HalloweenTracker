@@ -139,10 +139,14 @@ class TrackerConfigTests(unittest.TestCase):
     def test_trackers_have_independent_pivot_offsets(self):
         self.assertGreater(len(config.TRACKERS), 0)
         for tracker in config.TRACKERS:
-            self.assertIn("pan_pivot_x_mm", tracker)
-            self.assertIn("pan_pivot_y_mm", tracker)
-            self.assertIsInstance(tracker["pan_pivot_x_mm"], (int, float))
-            self.assertIsInstance(tracker["pan_pivot_y_mm"], (int, float))
+            has_pivot_x = "yaw_pivot_x_mm" in tracker or "pan_pivot_x_mm" in tracker
+            has_pivot_y = "yaw_pivot_y_mm" in tracker or "pan_pivot_y_mm" in tracker
+            self.assertTrue(has_pivot_x)
+            self.assertTrue(has_pivot_y)
+            pivot_x = tracker.get("yaw_pivot_x_mm", tracker.get("pan_pivot_x_mm"))
+            pivot_y = tracker.get("yaw_pivot_y_mm", tracker.get("pan_pivot_y_mm"))
+            self.assertIsInstance(pivot_x, (int, float))
+            self.assertIsInstance(pivot_y, (int, float))
 
 
 class TargetSelectorTests(unittest.TestCase):

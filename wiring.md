@@ -7,22 +7,23 @@ positions.
 
 ## GPIO map
 
-| Function            | ESP32 GPIO | Connect to                                |
-| ------------------- | ---------: | ----------------------------------------- |
-| LD2450 UART2 RX     |         16 | LD2450 TX                                 |
-| LD2450 UART2 TX     |         17 | LD2450 RX (optional for receive-only use) |
-| Yaw STEP            |         25 | Yaw TMC2209 STEP                          |
-| Yaw DIR             |         26 | Yaw TMC2209 DIR                           |
-| Yaw enable          |         27 | Yaw TMC2209 EN/ENN                        |
-| Driver logic supply |        3V3 | Both BTT TMC2209 V1.3 VIO pins            |
-| Tilt STEP           |         18 | Tilt TMC2209 STEP                         |
-| Tilt DIR            |         19 | Tilt TMC2209 DIR                          |
-| Tilt enable         |         21 | Tilt TMC2209 EN/ENN                       |
-| NeoPixel data       |         13 | First eye LED DIN                         |
-| Future yaw DIAG     |         32 | Yaw BTT TMC2209 V1.3 DIAG (not used yet)  |
-| Future tilt DIAG    |         33 | Tilt BTT TMC2209 V1.3 DIAG (not used yet) |
-| TMC driver UART RX  |         22 | Shared BTT RX/UART bus (direct)           |
-| TMC driver UART TX  |         23 | Shared BTT RX/UART bus through 1 kOhm     |
+| Function              | ESP32 GPIO | Connect to                                |
+| --------------------- | ---------: | ----------------------------------------- |
+| LD2450 UART2 RX       |         16 | LD2450 TX                                 |
+| LD2450 UART2 TX       |         17 | LD2450 RX (optional for receive-only use) |
+| Tracker 1 Yaw STEP    |         25 | Tracker 1 TMC2209 STEP                    |
+| Tracker 1 Yaw DIR     |         26 | Tracker 1 TMC2209 DIR                     |
+| Tracker 1 Yaw enable  |         27 | Tracker 1 TMC2209 EN/ENN                  |
+| Driver logic supply   |        3V3 | Both BTT TMC2209 V1.3 VIO pins            |
+| Tracker 2 Yaw STEP    |         18 | Tracker 2 TMC2209 STEP                    |
+| Tracker 2 Yaw DIR     |         19 | Tracker 2 TMC2209 DIR                     |
+| Tracker 2 Yaw enable  |         21 | Tracker 2 TMC2209 EN/ENN                  |
+| Tracker 1 Eye data    |         13 | Tracker 1 NeoPixel DIN (2 LEDs)           |
+| Tracker 2 Eye data    |         14 | Tracker 2 NeoPixel DIN (2 LEDs)           |
+| Future Tracker 1 DIAG |         32 | Tracker 1 TMC2209 DIAG (not used yet)     |
+| Future Tracker 2 DIAG |         33 | Tracker 2 TMC2209 DIAG (not used yet)     |
+| TMC driver UART RX    |         22 | Shared BTT RX/UART bus (direct)           |
+| TMC driver UART TX    |         23 | Shared BTT RX/UART bus through 1 kOhm     |
 
 ## Connection sketch
 
@@ -37,10 +38,11 @@ LD2450 RX <--------------| GPIO17 (UART2 TX)  |  optional
 LD2450 GND --------------| GND                |
 LD2450 VCC <-------------| external buck +5V  |
                          |                    |
-Yaw STEP/DIR/EN <--------| GPIO25/26/27       |
-Tilt STEP/DIR/EN <-------| GPIO18/19/21       |
-Eye LED DIN <------------| GPIO13             |
-GPIO22 UART RX <----------+---- shared bus ----> BTT yaw driver RX/UART
+Tracker 1 STEP/DIR/EN <--| GPIO25/26/27       |
+Tracker 2 STEP/DIR/EN <--| GPIO18/19/21       |
+Tracker 1 Eye LED DIN <--| GPIO13             |
+Tracker 2 Eye LED DIN <--| GPIO14             |
+GPIO22 UART RX <----------+---- shared bus ----> Both BTT driver RX/UART pads
 GPIO23 UART TX ---------[1 kOhm]---+
                          | 3V3                |------> both TMC2209 VIO
                          +----+----------+----+
@@ -48,7 +50,8 @@ GPIO23 UART TX ---------[1 kOhm]---+
                               |          +------ common ground
                               |                    |
                     +---------v------+    +--------v-------+
-                    | Yaw BTT 1.3    |    | Tilt BTT 1.3   |
+                    | Tracker 1 BTT  |    | Tracker 2 BTT  |
+                    | (Address 0)    |    | (Address 1)    |
                     | STEP DIR EN    |    | STEP DIR EN    |
                     | VM VIO GND     |    | VM VIO GND     |
                     +--+----+--------+    +--+----+--------+
@@ -60,11 +63,12 @@ GPIO23 UART TX ---------[1 kOhm]---+
                   buck OUT+ 5V ----------> ESP32 VIN and LD2450 VCC
                   buck OUT- GND ----------> ESP32 GND and LD2450 GND
                        |                         |
-                 Yaw NEMA17                 Tilt NEMA17
+               Tracker 1 NEMA17           Tracker 2 NEMA17
 
-ESP32 GPIO13 --[level shifter recommended]--> DIN [Eye 1] DOUT --> DIN [Eye 2]
-LED 5V supply --------------------------------------> both LED +5V pins
-LED GND --------------------------------------------> both LED GND pins
+Tracker 1: ESP32 GPIO13 --[buffer]--> DIN [Eye 1] DOUT --> DIN [Eye 2]
+Tracker 2: ESP32 GPIO14 --[buffer]--> DIN [Eye 1] DOUT --> DIN [Eye 2]
+LED 5V supply ----------------------------------------------> all LED +5V pins
+LED GND ----------------------------------------------------> all LED GND pins
 ```
 
 The uPesy ESP32 Wroom Low Power DevKit supports an external 3.5-7 V supply on
@@ -104,10 +108,10 @@ any later LEDs); verify its output is 5 V before connecting it.
   module's separate `TX` pad and `CLK` unconnected. Do not bridge R10; the
   manual shows that as an alternate pin assignment. DIAG is reserved for future
   homing and is not used yet.
-- Both drivers use the shared UART bus. Leave yaw MS1/MS2 low/open (address
-  0), and strap tilt MS1 to VIO (3V3) and MS2 to GND (address 1). With
-  `MSTEP_REG_SELECT` enabled, these pins select the UART address. The tilt
-  diagnostics address only driver 1 and do not step the yaw motor. Verify both
+- Both drivers use the shared UART bus. Leave Tracker 1 MS1/MS2 low/open (address
+  0), and strap Tracker 2 MS1 to VIO (3V3) and MS2 to GND (address 1). With
+  `MSTEP_REG_SELECT` enabled, these pins select the UART address. The motor
+  diagnostics (`motor_test.py`) verify both drivers on the shared bus. Verify both
   addresses before enabling VM or running either motor test.
 - Keep motor VM off until UART readback confirms the current and microstep
   settings. Never unplug the motor while the driver is powered.

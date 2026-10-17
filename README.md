@@ -43,7 +43,9 @@ and NEMA17 motor originally allocated for tilt.
     closest target. Either skull idles/parks when fewer targets are present.
   - `fixed_slot`: Skull 1 follows radar slot 1; Skull 2 follows radar slot 2.
     An empty slot returns that skull to its forward park pose.
-- **Unit Tests**: 28 host tests in `tests/test_protocol_and_aiming.py` pass.
+- **Main Control Loop**: See [MAIN_LOOP.md](MAIN_LOOP.md) for a detailed breakdown
+  and sequence diagrams of the 50 Hz real-time tracking and RMT hardware pulse slicing loop.
+- **Unit Tests**: 29 host tests in `tests/test_protocol_and_aiming.py` pass.
 - **Physical Commissioning**: Unloaded bare-motor movements and UART diagnostics
   are verified. Full skull prop linkage assembly and the second eye pair remain
   to be commissioned.

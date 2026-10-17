@@ -1,32 +1,57 @@
-"""Select stable LD2450 targets and shape natural stepper tracking motion."""
+"""Target filtering, skull assignment, and natural motion shaping algorithms.
+
+This module provides:
+  1. Target filtering: Range checking and forward-hemisphere gating.
+  2. Target assignment: Allocating radar targets to skulls ('fixed_slot' or 'nearest_two').
+  3. Exponential angle smoothing: Low-pass filtering to glide smoothly over sensor jitter.
+  4. Micro-hysteresis deadband: Start/stop thresholds to prevent hunting at rest.
+  5. Speed shaping: Error-proportional power curve with velocity feed-forward.
+  6. Rate slewing: Bounded acceleration/deceleration to protect against lost steps.
+"""
 
 
 def valid_target(target, minimum_range_mm, maximum_range_mm):
-    """Return True when a radar slot holds an in-front target within range."""
+    """Return True when a radar slot holds an in-front target within range limits.
+
+    Parameters:
+      target: (x_mm, y_mm, speed_cm_s, resolution_mm) or None.
+      minimum_range_mm: Closest valid detection distance (rejects prop chassis echoes).
+      maximum_range_mm: Furthest detection distance for prop interaction.
+    """
     if target is None:
         return False
     x_mm, y_mm, speed_cm_s, resolution_mm = target
     distance_squared = x_mm * x_mm + y_mm * y_mm
+    # Target must be in front (y > 0) and between minimum and maximum range
     return (y_mm > 0 and minimum_range_mm ** 2 <= distance_squared <=
             maximum_range_mm ** 2)
 
 
 def choose_two_targets(slots, minimum_range_mm, maximum_range_mm,
                        assignment_mode):
-    """Return the (skull1, skull2) targets; either may be None.
+    """Assign targets to (skull1, skull2); either returned target may be None.
 
-    Modes:
-      nearest_two - skull 1 gets the nearest valid target, skull 2 the
-                    next-nearest. Either may be None when few targets exist.
-      fixed_slot  - skull 1 always gets radar slot 1, skull 2 slot 2. An
-                    empty or invalid slot means that skull idles/parks.
+    Assignment Modes:
+      'fixed_slot':
+        Skull 1 always tracks radar hardware slot 1, Skull 2 tracks slot 2.
+        If a slot is empty or out-of-range, that specific skull parks/idles.
+        This provides deterministic 1:1 mapping to radar detection tracks.
+
+      'nearest_two':
+        Sorts all valid targets by Euclidean distance from the sensor.
+        Skull 1 tracks the closest target; Skull 2 tracks the second closest.
+        When fewer than 2 targets exist, the remaining skull(s) park/idle.
     """
     if assignment_mode == "fixed_slot":
-        first = slots[0] if valid_target(slots[0], minimum_range_mm,
-                                         maximum_range_mm) else None
-        second = slots[1] if valid_target(slots[1], minimum_range_mm,
-                                          maximum_range_mm) else None
+        first = (slots[0] if len(slots) > 0 and
+                 valid_target(slots[0], minimum_range_mm, maximum_range_mm)
+                 else None)
+        second = (slots[1] if len(slots) > 1 and
+                  valid_target(slots[1], minimum_range_mm, maximum_range_mm)
+                  else None)
         return first, second
+
+    # 'nearest_two' mode: filter all valid targets and sort by distance squared
     valid = [target for target in slots
              if valid_target(target, minimum_range_mm, maximum_range_mm)]
     valid.sort(key=lambda item: item[0] ** 2 + item[1] ** 2)
@@ -41,10 +66,16 @@ def tracking_step_rate(error_degrees, bearing_rate_deg_s, minimum_rate,
                        steps_per_degree, feedforward_gain):
     """Return an error-shaped tracking rate with target-rate feed-forward.
 
-    The position-error term reaches full speed at full_speed_error_degrees and
-    eases toward minimum_rate near the stop deadband. Bearing-rate feed-forward
-    keeps pace with a moving target without letting sensor noise dominate near
-    the target.
+    Motion profile:
+      - Near the target (error approaching deadband stop threshold), velocity
+        eases down toward minimum_rate according to normalized_error^rate_exponent.
+      - At or beyond full_speed_error_degrees, the error-proportional rate saturates
+        at maximum_rate.
+      - Bearing-rate feed-forward: When chasing a moving target (error >= 3 deg),
+        target angular speed is converted to step rate to help the skull match
+        the person's walking pace without lagging behind. Below 3 deg of error,
+        feed-forward is gated off to prevent radar coordinate noise from creating
+        tick vibrations at rest.
     """
     error_span = max(0.001,
                      full_speed_error_degrees - minimum_error_degrees)
@@ -52,18 +83,26 @@ def tracking_step_rate(error_degrees, bearing_rate_deg_s, minimum_rate,
     normalized_error = min(1.0, normalized_error / error_span)
     error_rate = (minimum_rate + (maximum_rate - minimum_rate) *
                   (normalized_error ** rate_exponent))
-    # Feed-forward only helps when genuinely chasing a moving target. Near the
-    # floor it just amplifies sensor noise, so gate it off for small errors.
+
+    # Feed-forward is only activated when error >= 3.0 deg to prevent noise jitter
     feedforward_active = abs(error_degrees) >= 3.0
     feedforward_rate = (abs(bearing_rate_deg_s) * steps_per_degree *
                         feedforward_gain) if feedforward_active else 0.0
+
     requested_rate = max(minimum_rate, error_rate, feedforward_rate)
     return min(maximum_rate, max(minimum_rate, round(requested_rate)))
 
 
 def slew_step_rate(current_rate, desired_rate, elapsed_ms,
                    maximum_change_pps_s):
-    """Move a STEP rate toward its target without an instantaneous jump."""
+    """Ramp step rate toward desired_rate without exceeding maximum acceleration.
+
+    Parameters:
+      current_rate: Current step rate in pulses per second.
+      desired_rate: Target step rate in pulses per second.
+      elapsed_ms: Time in milliseconds since last rate update.
+      maximum_change_pps_s: Maximum acceleration/deceleration in pulses/s^2.
+    """
     if elapsed_ms <= 0:
         return current_rate
     maximum_delta = maximum_change_pps_s * elapsed_ms / 1000.0
@@ -76,7 +115,14 @@ def slew_step_rate(current_rate, desired_rate, elapsed_ms,
 
 
 def smooth_toward_target(current, target, elapsed_ms, smoothing_ms):
-    """Return an exponentially smoothed step from current toward target."""
+    """Apply exponential moving average to filter target angle jitter.
+
+    Parameters:
+      current: Currently smoothed angle (or None if unseeded).
+      target: New raw target angle.
+      elapsed_ms: Milliseconds since previous smoothing tick.
+      smoothing_ms: Time constant in milliseconds (higher = smoother, lower = faster).
+    """
     if current is None:
         return target
     if elapsed_ms <= 0:
@@ -88,38 +134,45 @@ def smooth_toward_target(current, target, elapsed_ms, smoothing_ms):
 
 
 def update_deadband(error_degrees, active, start_degrees, stop_degrees):
-    """Apply start/stop hysteresis and return whether axis tracking is active."""
+    """Apply dual-threshold start/stop hysteresis.
+
+    Hysteresis behavior:
+      - If currently stationary (active=False): only start moving if error
+        exceeds start_degrees (e.g. 0.225 deg / 2 microsteps).
+      - If already moving (active=True): continue moving until error drops
+        below stop_degrees (e.g. 0.0 deg / exact target).
+    """
     if active:
         return error_degrees > stop_degrees
     return error_degrees >= start_degrees
 
 
 class TargetSelector:
+    """Legacy single-skull target selector with nearest-neighbor track continuity.
+
+    Retained for standalone diagnostics and backwards-compatible unit testing.
+    Picks the nearest target on initial detection, then maintains continuity
+    with that target across frames using nearest-neighbor Euclidean distance.
+    """
+
     def __init__(self, minimum_range_mm, maximum_range_mm):
-        self.minimum_range_squared = minimum_range_mm ** 2
-        self.maximum_range_squared = maximum_range_mm ** 2
+        self.minimum_range_mm = minimum_range_mm
+        self.maximum_range_mm = maximum_range_mm
         self.previous = None
 
     def choose(self, targets):
-        candidates = []
-        for target in targets:
-            x_mm, y_mm, speed_cm_s, resolution_mm = target
-            distance_squared = x_mm * x_mm + y_mm * y_mm
-            if y_mm <= 0:
-                continue
-            if distance_squared < self.minimum_range_squared:
-                continue
-            if distance_squared > self.maximum_range_squared:
-                continue
-            candidates.append(target)
-
+        """Select the most continuous valid target from a list of radar targets."""
+        candidates = [t for t in targets
+                      if valid_target(t, self.minimum_range_mm, self.maximum_range_mm)]
         if not candidates:
             return None
 
         if self.previous is None:
+            # First acquisition: choose closest to the sensor
             selected = min(candidates,
                            key=lambda item: item[0] ** 2 + item[1] ** 2)
         else:
+            # Maintain track continuity: choose target closest to previous position
             old_x, old_y = self.previous
             selected = min(candidates,
                            key=lambda item: (item[0] - old_x) ** 2 +

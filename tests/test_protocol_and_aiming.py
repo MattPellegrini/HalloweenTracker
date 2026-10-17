@@ -1,6 +1,8 @@
+import math
 import unittest
 from unittest.mock import patch
 
+import config
 from aiming import solve_angles
 from ld2450 import (FRAME_FOOTER, FRAME_HEADER, LD2450Reader, decode_frame,
                     decode_frame_slots)
@@ -123,6 +125,30 @@ class AimingTests(unittest.TestCase):
                                   (0, 0, 0), (0, 0, 0))
         self.assertAlmostEqual(yaw, 45)
         self.assertAlmostEqual(pitch, 35.26438968)
+
+    def test_offset_pan_pivot(self):
+        # Target at (1000, 2000), motor pivot offset at (200, 100)
+        # dx = 1000 - 200 = 800, dy = 2000 - 100 = 1900
+        yaw, _ = solve_angles(1000, 2000, 0, (200, 100, 0), (0, 0, 0))
+        expected_yaw = math.degrees(math.atan2(800, 1900))
+        self.assertAlmostEqual(yaw, expected_yaw)
+
+    def test_z_offset_does_not_affect_yaw_for_planar_pan(self):
+        # Because yaw is planar atan2(dx, dy), any Z height difference
+        # between sensor and pivot does not change the pan yaw angle.
+        yaw_no_z, _ = solve_angles(1000, 2000, 0, (200, 100, 0), (0, 0, 0))
+        yaw_with_z, _ = solve_angles(1000, 2000, 0, (200, 100, 450), (0, 0, 0))
+        self.assertAlmostEqual(yaw_no_z, yaw_with_z)
+
+
+class SkullConfigTests(unittest.TestCase):
+    def test_skulls_have_independent_pivot_offsets(self):
+        self.assertGreater(len(config.SKULLS), 0)
+        for skull in config.SKULLS:
+            self.assertIn("pan_pivot_x_mm", skull)
+            self.assertIn("pan_pivot_y_mm", skull)
+            self.assertIsInstance(skull["pan_pivot_x_mm"], (int, float))
+            self.assertIsInstance(skull["pan_pivot_y_mm"], (int, float))
 
 
 class TargetSelectorTests(unittest.TestCase):

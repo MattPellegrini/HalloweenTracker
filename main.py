@@ -19,13 +19,20 @@ from tracking import (choose_two_targets, slew_step_rate,
 
 
 def set_eyes(eyes, color):
+    """Set both NeoPixel eye LEDs to the specified RGB color tuple and commit."""
     for index in range(config.NEOPIXEL_COUNT):
         eyes[index] = color
     eyes.write()
 
 
 def find_tmc_drivers():
-    """Open the shared TMC UART and require every skull's driver to reply."""
+    """Open the shared TMC UART and require every skull's driver to reply.
+
+    The project uses a single shared half-duplex UART bus for all TMC2209 drivers.
+    Each driver is distinguished by its hardware address pins (MS1/MS2). This
+    function verifies physical connectivity and valid silicon revision (0x21)
+    for each driver before allowing motion.
+    """
     addresses = [skull["tmc_address"] for skull in config.SKULLS]
     if len(set(addresses)) != len(addresses):
         raise ValueError("each skull must have a distinct TMC UART address")
@@ -55,6 +62,15 @@ def find_tmc_drivers():
 
 
 def configure_driver(driver, name, run_current_ma, hold_current_ma):
+    """Configure a TMC2209 over UART for digital current and microstepping.
+
+    Steps performed:
+      1. GCONF: Switch from analog VREF scaling to digital UART register control.
+      2. GLOBALSCALER: Set to 0 (full 256/256 scale).
+      3. IHOLD_IRUN: Set operating run current (RMS) and standby hold current (RMS).
+         Verified via IFCNT (interface transmission counter).
+      4. CHOPCONF: Set MRES for 1/16 microstepping (3,200 steps/rev).
+    """
     gconf = driver.configure_uart_mode()
     scaler_ifcnt = driver.write_register_confirmed(REG_GLOBALSCALER, 0)
     run_cs, hold_cs, current_register, current_ifcnt = (
@@ -75,16 +91,37 @@ def configure_driver(driver, name, run_current_ma, hold_current_ma):
 
 
 class Tracker:
-    """One skull: pan axis, eye LEDs, and independent target-tracking state."""
+    """Controls one skull prop: pan stepper axis, eye LEDs, and tracking pipeline.
+
+    A Tracker encapsulates all motion, LED state, target filtering, and position
+    history for a single skull. Each instance maintains:
+      - Stepper motor control via StepperAxis (hardware RMT pulse generation).
+      - NeoPixel eye color state (red when tracking, dark when idle/parked).
+      - Target filtering, angular velocity estimation, and exponential smoothing.
+      - Dual-threshold deadband hysteresis and velocity slew rate limiting.
+    """
 
     def __init__(self, skull):
         self.name = skull["name"]
+
+        # --- Hardware Pins and Actuators ---
+        # Direct GPIO pin controls passed to the StepperAxis:
         self.step_pin = Pin(skull["step_pin"], Pin.OUT, value=0)
         self.direction_pin = Pin(skull["dir_pin"], Pin.OUT, value=0)
         self.enable_pin = Pin(skull["enable_pin"], Pin.OUT, value=1)
+
+        # Eye illumination (WS2812B NeoPixel chain):
         self.eyes = neopixel.NeoPixel(Pin(skull["eyes_pin"]),
                                       config.NEOPIXEL_COUNT)
         set_eyes(self.eyes, config.EYE_OFF)
+
+        # Prop geometry: position of this motor's pan axis relative to the radar.
+        # (+X = sensor left, +Y = forward into detection zone)
+        self.pan_pivot_x_mm = skull.get("pan_pivot_x_mm", 0.0)
+        self.pan_pivot_y_mm = skull.get("pan_pivot_y_mm", 0.0)
+        self.pan_pivot_xyz = (self.pan_pivot_x_mm, self.pan_pivot_y_mm, 0)
+
+        # Motion axis with ESP32 hardware RMT pulse generation:
         steps_per_revolution = (config.FULL_STEPS_PER_REVOLUTION *
                                 config.MICROSTEPS)
         self.axis = StepperAxis(
@@ -102,37 +139,98 @@ class Tracker:
             pulse_width_us=getattr(config, "RMT_PULSE_WIDTH_US", 10),
             burst_slice_ms=getattr(config, "RMT_BURST_SLICE_MS", 15),
         )
+
+        # --- Motion & Alertness State Flags ---
+        # self.moving: True when pan motor is actively commanded to step toward target_yaw.
+        # Managed by the deadband hysteresis (starts moving if error >= START_DEG,
+        # stops when error <= STOP_DEG or exact target step reached).
         self.moving = False
+
+        # self.awake: True when a target is actively tracked (eyes illuminated red).
+        # False when in parked/sleep mode (eyes off, target lost for > TARGET_LOST_MS).
         self.awake = False
+
+        # self.reversing: True when motion direction has flipped before coming to a stop.
+        # When reversing, the tracker decelerates to MIN_TRACKING_STEP_RATE first
+        # to avoid jerking and step loss.
         self.reversing = False
+
+        # --- Target Tracking & History ---
+        # self.current_target: (x_mm, y_mm, speed_cm_s, resolution_mm) tuple of
+        # currently tracked target. Retained across brief radar dropouts until TARGET_LOST_MS.
         self.current_target = None
+
+        # self.last_assigned_target: Target tuple assigned in the MOST RECENT radar frame
+        # (or None if no target in this frame). Used for frame telemetry logging.
         self.last_assigned_target = None
+
+        # self.last_target_ms: System timestamp (ms) when a valid target was last received.
+        # Used to evaluate timeout against config.TARGET_LOST_MS.
         self.last_target_ms = None
+
+        # --- Angular Velocity (Bearing Rate) Feed-Forward ---
+        # self.last_bearing_yaw: Previous raw target yaw (deg) for calculating delta-yaw.
         self.last_bearing_yaw = None
+
+        # self.last_bearing_ms: Timestamp (ms) of previous bearing sample for delta-time.
         self.last_bearing_ms = None
+
+        # self.filtered_yaw_rate: Low-pass filtered angular speed of target (deg/s).
+        # Used by tracking_step_rate to add feed-forward velocity pacing.
         self.filtered_yaw_rate = 0.0
-        self.smoothed_yaw = None
-        self.target_yaw = config.PARK_YAW_DEG
-        self.desired_rate = config.MIN_TRACKING_STEP_RATE
+
+        # --- Angle Smoothing & Command Generation ---
+        # self.last_raw_yaw: Most recent instantaneous geometric yaw angle (deg)
+        # calculated directly from radar X/Y coordinates and clamped to min/max limits.
         self.last_raw_yaw = None
+
+        # self.smoothed_yaw: Exponentially filtered yaw angle (deg) that glides smoothly
+        # between radar measurements, eliminating stepping jitter from raw radar noise.
+        self.smoothed_yaw = None
+
+        # self.target_yaw: Final commanded yaw angle (deg) sent to the stepper axis.
+        # Equals smoothed_yaw while tracking, or PARK_YAW_DEG when idle/lost.
+        self.target_yaw = config.PARK_YAW_DEG
+
+        # self.desired_rate: Un-slewed instantaneous step rate (pulses/s) calculated from
+        # current pointing error and target bearing speed.
+        self.desired_rate = config.MIN_TRACKING_STEP_RATE
+
+        # --- Telemetry & Diagnostics ---
+        # self.last_frame_steps: Stepper position (in steps) at previous radar frame,
+        # used to compute delta steps moved per frame in telemetry logs.
         self.last_frame_steps = self.axis.position_steps
 
     def on_radar_frame(self, target, now_ms):
-        """Record this skull's assigned target from the latest radar frame."""
+        """Record this skull's assigned target from the latest radar frame.
+
+        Parameters:
+          target: (x_mm, y_mm, speed_cm_s, resolution_mm) tuple from the radar,
+                  or None if no target is assigned to this skull.
+          now_ms: Monotonic millisecond timestamp of the radar frame.
+
+        Processing:
+          1. Retains last_assigned_target for frame telemetry logging.
+          2. Updates current_target and refreshes last_target_ms (postponing timeout).
+          3. Solves the geometric line-of-sight yaw angle from radar coordinates.
+          4. Estimates target angular velocity (bearing rate in deg/s) and applies
+             a low-pass filter to provide feed-forward velocity pacing.
+        """
         self.last_assigned_target = target
         if target is None:
             self.last_raw_yaw = None
             return
         self.current_target = target
         self.last_target_ms = now_ms
+
+        # Compute geometric yaw angle to the target
         yaw, _ = solve_angles(target[0], target[1], 0,
-                              (config.PAN_PIVOT_FROM_SENSOR_X_MM,
-                               config.PAN_PIVOT_FROM_SENSOR_Y_MM, 0),
+                              self.pan_pivot_xyz,
                               (0, 0, 0))
         yaw = clamp(yaw, config.PAN_MIN_DEG, config.PAN_MAX_DEG)
         self.last_raw_yaw = yaw
 
-        bearing_elapsed_ms = 0
+        # Calculate target angular speed (bearing rate in deg/s) for feed-forward
         if self.last_bearing_ms is not None and self.last_bearing_yaw is not None:
             bearing_elapsed_ms = time.ticks_diff(now_ms, self.last_bearing_ms)
             if bearing_elapsed_ms > 0:
@@ -147,10 +245,30 @@ class Tracker:
         self.last_bearing_ms = now_ms
 
     def update(self, now_ms, elapsed_ms):
+        """Execute one tracking update step (called on radar frames and 50 Hz timer).
+
+        Parameters:
+          now_ms: Monotonic millisecond timestamp.
+          elapsed_ms: Milliseconds elapsed since the previous update step.
+
+        Lifecycle and motion pipeline:
+          1. Target Timeout: If no target received for > TARGET_LOST_MS, transition
+             to sleep/park mode, turn eye LEDs dark, and command PARK_YAW_DEG.
+          2. Target Tracking: If target is active, turn eye LEDs red, smooth raw
+             yaw with an exponential filter (if enabled) to eliminate radar noise.
+          3. Deadband Hysteresis: Apply start/stop error thresholds to prevent
+             hunting/vibration when standing nearly still.
+          4. Speed Shaping & Slew: If moving, compute velocity-profiled step rate
+             (E^1.4 + feedforward). Slew acceleration/deceleration to protect against
+             missed steps, and decelerate before reversing direction.
+          5. Coil Power: Enable stepper driver coils while awake or moving; disable
+             coils when fully parked to save power and eliminate motor heat.
+        """
         expired = (self.last_target_ms is None or
                    time.ticks_diff(now_ms, self.last_target_ms) >
                    config.TARGET_LOST_MS)
         if expired:
+            # Target has timed out: park facing forward with eyes dark
             self.current_target = None
             self.last_raw_yaw = None
             self.last_bearing_yaw = None
@@ -163,13 +281,13 @@ class Tracker:
                 self.awake = False
                 print("{}: target lost; returning to park.".format(self.name))
         else:
+            # Active target: determine target yaw and ensure eyes are illuminated
             x_mm, y_mm, speed_cm_s, resolution_mm = self.current_target
             target_yaw = self.last_raw_yaw
             if target_yaw is None:
                 target_yaw, _ = solve_angles(
                     x_mm, y_mm, 0,
-                    (config.PAN_PIVOT_FROM_SENSOR_X_MM,
-                     config.PAN_PIVOT_FROM_SENSOR_Y_MM, 0),
+                    self.pan_pivot_xyz,
                     (0, 0, 0))
                 target_yaw = clamp(target_yaw, config.PAN_MIN_DEG,
                                    config.PAN_MAX_DEG)
@@ -180,9 +298,11 @@ class Tracker:
                 self.awake = True
                 print("{}: target acquired x={} y={} mm; yaw={:.1f} deg".
                       format(self.name, x_mm, y_mm, target_yaw))
+                # Seed smoother directly with the initial angle to avoid lag on wake
                 if getattr(config, "ENABLE_TARGET_SMOOTHING", True):
                     self.smoothed_yaw = target_yaw
 
+            # Apply low-pass exponential angle smoothing if enabled
             if getattr(config, "ENABLE_TARGET_SMOOTHING", True):
                 if self.smoothed_yaw is None:
                     self.smoothed_yaw = target_yaw
@@ -195,9 +315,11 @@ class Tracker:
                 self.smoothed_yaw = target_yaw
                 self.target_yaw = target_yaw
 
+        # Calculate pointing error in degrees
         current_degrees = self.axis.position_steps / self.axis.steps_per_degree
         error_degrees = self.target_yaw - current_degrees
 
+        # Evaluate deadband hysteresis to decide whether motor should move
         if getattr(config, "ENABLE_DEADBAND", True):
             self.moving = update_deadband(
                 abs(error_degrees),
@@ -213,6 +335,7 @@ class Tracker:
                            round(self.target_yaw * self.axis.steps_per_degree))
 
         if self.moving:
+            # Calculate desired step rate via error-shaping curve + feed-forward
             if getattr(config, "ENABLE_SPEED_SHAPING", True):
                 desired_rate = tracking_step_rate(
                     error_degrees,
@@ -229,13 +352,16 @@ class Tracker:
                 desired_rate = getattr(config, "TRACKING_BASE_STEP_RATE", 400)
             self.desired_rate = desired_rate
 
+            # Apply acceleration/deceleration slew rate limiting
             if getattr(config, "ENABLE_RATE_SLEW", True):
                 previous_difference = (self.axis.target_steps -
                                        self.axis.position_steps)
+                # Check for direction reversal (braking before switching direction)
                 reversing = (previous_difference != 0 and
                              previous_difference * error_degrees < 0)
                 self.reversing = reversing
                 if reversing and self.axis.step_rate > config.MIN_TRACKING_STEP_RATE:
+                    # Decelerate to minimum speed before executing reverse
                     rate = slew_step_rate(self.axis.step_rate,
                                           config.MIN_TRACKING_STEP_RATE,
                                           elapsed_ms,
@@ -243,6 +369,7 @@ class Tracker:
                     self.axis.set_step_rate(rate)
                     self.axis.set_target_degrees(current_degrees)
                 else:
+                    # Accelerate or cruise toward desired rate
                     rate = slew_step_rate(self.axis.step_rate, desired_rate,
                                           elapsed_ms,
                                           config.TRACKING_STEP_RATE_SLEW_PPS_S)
@@ -253,6 +380,7 @@ class Tracker:
                 self.axis.set_step_rate(desired_rate)
                 self.axis.set_target_degrees(self.target_yaw)
         else:
+            # Not moving: hold current position and reset rate to minimum floor
             self.desired_rate = config.MIN_TRACKING_STEP_RATE
             self.reversing = False
             self.axis.set_step_rate(config.MIN_TRACKING_STEP_RATE)
@@ -261,6 +389,8 @@ class Tracker:
             else:
                 self.axis.set_target_degrees(self.target_yaw)
 
+        # Coil energization: keep coils engaged while awake or moving.
+        # When awake at rest, TMC2209 automatically drops to IHOLD current silently.
         if self.awake or self.moving:
             self.axis.set_enabled(True)
         else:
@@ -305,14 +435,17 @@ class Tracker:
             err_str, step_str, rate_str, brg_str, state)
 
     def run(self):
+        """Dispatch hardware RMT pulse burst slice or bit-bang fallback step."""
         self.axis.run()
 
     def shutdown(self):
+        """Release hardware peripherals, turn off eye LEDs, and disable coils."""
         self.axis.deinit()
         set_eyes(self.eyes, config.EYE_OFF)
 
 
 def main():
+    """Main program entry point: initialize hardware and run real-time tracking loop."""
     if config.POSITION_MODE != "assume":
         raise RuntimeError("selected position mode is not implemented")
     print("Startup pose: every skull pan at {} deg".format(
@@ -322,6 +455,7 @@ def main():
     tmc_uart = None
     radar_uart = None
     try:
+        # 1. Discover and initialize both TMC2209 stepper drivers via shared UART
         tmc_uart, drivers = find_tmc_drivers()
         print("All TMC2209s found at {} baud; configuring before motion.".
               format(config.TMC_UART_BAUDRATE))
@@ -329,11 +463,13 @@ def main():
             configure_driver(drivers[skull["name"]], skull["name"],
                              skull["run_current_ma"], skull["hold_current_ma"])
 
+        # 2. Open LD2450 radar UART and initialize streaming reader
         radar_uart = UART(config.RADAR_UART_ID, baudrate=config.RADAR_BAUDRATE,
                           bits=8, parity=None, stop=1,
                           tx=config.RADAR_TX_PIN, rx=config.RADAR_RX_PIN)
         radar = LD2450Reader(radar_uart)
 
+        # Print active configuration summary
         features = []
         if getattr(config, "ENABLE_TARGET_SMOOTHING", False):
             features.append("smooth:{}ms".format(config.TRACKING_TARGET_SMOOTHING_MS))
@@ -362,8 +498,11 @@ def main():
         last_update_ms = time.ticks_ms()
         loop_iterations = 0
 
+        # --- Main Real-Time Control Loop ---
         while True:
             loop_iterations += 1
+
+            # (A) Poll radar for new decoded frames (~10 Hz)
             targets = radar.poll()
             now_ms = time.ticks_ms()
             if targets is not None:
@@ -380,6 +519,7 @@ def main():
                     deg = steps / tracker.axis.steps_per_degree
                     moves.append((steps, deg))
 
+                # Assign radar targets to skulls (fixed_slot or nearest_two)
                 assigned = choose_two_targets(targets,
                                               config.MIN_TARGET_RANGE_MM,
                                               config.MAX_TARGET_RANGE_MM,
@@ -387,11 +527,13 @@ def main():
                 for tracker, target in zip(trackers, assigned):
                     tracker.on_radar_frame(target, now_ms)
 
+                # Run tracking pipeline on radar frame arrival
                 update_elapsed_ms = time.ticks_diff(now_ms, last_update_ms)
                 last_update_ms = now_ms
                 for tracker in trackers:
                     tracker.update(now_ms, update_elapsed_ms)
 
+                # Optional frame-by-frame status telemetry
                 if config.ENABLE_FRAME_LOGGING:
                     decimation = getattr(config, "FRAME_LOG_DECIMATION", 1)
                     if decimation <= 1 or (radar_frame_count % decimation) == 0:
@@ -401,23 +543,19 @@ def main():
                             print(tracker.format_frame_log(prefix, steps, deg))
                 loop_iterations = 0
 
+            # (B) Periodic tracking update at 50 Hz (every TRACKING_UPDATE_MS = 20 ms)
             update_elapsed_ms = time.ticks_diff(now_ms, last_update_ms)
             if update_elapsed_ms >= config.TRACKING_UPDATE_MS:
                 last_update_ms = now_ms
                 for tracker in trackers:
                     tracker.update(now_ms, update_elapsed_ms)
 
+            # (C) Service stepper motors (dispatches next hardware RMT burst slice)
             for tracker in trackers:
                 tracker.run()
 
-            any_motion = any(
-                tracker.moving
-                or tracker.axis.position_steps != tracker.axis.target_steps
-                or tracker.axis.is_busy()
-                for tracker in trackers
-            )
-            # Cooperative yield: RMT hardware generates pulses autonomously,
-            # so sleep 1 ms to prevent CPU starvation and cool the ESP32.
+            # (D) Cooperative yield: RMT hardware generates pulses autonomously,
+            # so sleep 1 ms to prevent CPU starvation, service WiFi/REPL, and keep ESP32 cool.
             time.sleep_ms(1)
     finally:
         for tracker in trackers:

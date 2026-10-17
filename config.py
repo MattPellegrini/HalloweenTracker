@@ -20,6 +20,19 @@ TMC_UART_ID = 1                 # Hardware UART peripheral ID on ESP32
 TMC_UART_BAUDRATE = 115200      # Baud rate for TMC2209 register reads/writes
 
 # Two skull trackers. Each entry is one pan motor plus one NeoPixel eye pair.
+# Per-motor / per-skull pivot offsets from the radar sensor:
+#   pan_pivot_x_mm: Lateral offset of pan pivot from radar (+X = sensor left)
+#   pan_pivot_y_mm: Forward offset of pan pivot from radar (+Y = forward)
+#
+# Note on Z offset:
+#   There is no Z (vertical) offset variable because the LD2450 is a 2D planar
+#   radar (detecting only X and Y coordinates in the horizontal detection plane),
+#   and each skull is currently configured for 1-axis horizontal pan (yaw) rotation.
+#   In horizontal planar tracking, the line-of-sight yaw angle is determined solely
+#   by relative X and Y positions: atan2(dx, dy). Any vertical (Z) elevation
+#   difference between the radar plane and the pan pivot has zero geometric effect
+#   on the yaw angle. (A Z offset would only be relevant if 2-axis pan/tilt
+#   mechanisms were implemented to compute pitch/elevation angles).
 SKULLS = (
     {
         "name": "Skull 1",
@@ -31,6 +44,8 @@ SKULLS = (
         "direction_inverted": False,
         "run_current_ma": 770,
         "hold_current_ma": 390,
+        "pan_pivot_x_mm": 0.0,
+        "pan_pivot_y_mm": 0.0,
     },
     {
         "name": "Skull 2",
@@ -42,6 +57,8 @@ SKULLS = (
         "direction_inverted": False,
         "run_current_ma": 770,
         "hold_current_ma": 390,
+        "pan_pivot_x_mm": 0.0,
+        "pan_pivot_y_mm": 0.0,
     },
 )
 
@@ -75,10 +92,10 @@ TRACKING_DEADBAND_STOP_DEG = 0.0
 # Speed shaping and feed-forward parameters:
 TRACKING_FULL_SPEED_ERROR_DEG = 12.0     # Pointing error (deg) at which speed reaches MAX_STEP_RATE
 TRACKING_ERROR_SPEED_EXPONENT = 1.4       # Exponent for error-to-speed curve (>1 = gentle near target)
-TRACKING_FEEDFORWARD_GAIN = 0.85          # Target velocity feed-forward gain to pace moving targets
+TRACKING_FEEDFORWARD_GAIN = 0.85          # Target velocity feed-forward gain (pacing moving targets)
 TRACKING_STEP_RATE_SLEW_PPS_S = 14400     # Max acceleration/deceleration rate (pulses/s^2)
 TRACKING_RATE_FILTER_ALPHA = 0.35         # Low-pass filter weight for target angular rate estimation
-TRACKING_TARGET_SMOOTHING_MS = 150        # Time constant (ms) for exponential target angle smoothing (old 350)
+TRACKING_TARGET_SMOOTHING_MS = 150        # Time constant (ms) for exponential target angle smoothing
 MAX_TRACKING_BEARING_RATE_DEG_S = 90.0    # Clamp on target angular speed to reject sensor noise jumps
 
 # TODO testing out these for snappier motion tuning (all or some subset at a time)
@@ -103,11 +120,6 @@ ENABLE_RATE_SLEW = True          # Slew rate limiter on acceleration/deceleratio
 # Constant tracking speed used when ENABLE_SPEED_SHAPING is False
 # (800 pps at 1/16 microstepping is 90 deg/s; smooth and quiet)
 TRACKING_BASE_STEP_RATE = 800
-
-# Pan pivot position relative to the radar, in millimetres, X lateral and
-# Y forward. Zero placeholders until measured for the physical prop layout.
-PAN_PIVOT_FROM_SENSOR_X_MM = 0.0  # Lateral offset of pan pivot from radar (+X = sensor left)
-PAN_PIVOT_FROM_SENSOR_Y_MM = 0.0  # Forward offset of pan pivot from radar (+Y = forward)
 
 # Radar target filtering and tracking loop timing:
 MIN_TARGET_RANGE_MM = 300       # Minimum distance (mm) from radar to consider target valid

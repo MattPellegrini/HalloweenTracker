@@ -1,4 +1,4 @@
-"""Hardware and motion settings for the two Halloween skull trackers."""
+"""Hardware and motion settings for the multi-target prop trackers."""
 
 # LD2450 UART. Connect radar TX to ESP32 RX; radar RX is optional unless
 # sending configuration commands to the sensor.
@@ -7,8 +7,7 @@ RADAR_TX_PIN = 17               # ESP32 TX pin to radar RX (optional)
 RADAR_RX_PIN = 16               # ESP32 RX pin from radar TX (primary data stream)
 RADAR_BAUDRATE = 256000         # LD2450 factory baud rate
 
-# BTT TMC2209 V1.3 STEP/DIR control. Skull 2's pan motor reuses the former
-# tilt driver (STEP 18 / DIR 19 / EN 21, UART address 1).
+# BTT TMC2209 V1.3 STEP/DIR control. Tracker 2's pan motor reuses STEP 18 / DIR 19 / EN 21.
 # Active-low enable: True pulls EN low (0 V) to enable motor coils.
 ENABLE_ACTIVE_LOW = True
 
@@ -19,23 +18,23 @@ TMC_UART_TX_PIN = 23            # ESP32 TX through 1 kOhm resistor to shared lin
 TMC_UART_ID = 1                 # Hardware UART peripheral ID on ESP32
 TMC_UART_BAUDRATE = 115200      # Baud rate for TMC2209 register reads/writes
 
-# Two skull trackers. Each entry is one pan motor plus one NeoPixel eye pair.
-# Per-motor / per-skull pivot offsets from the radar sensor:
+# Two prop/gimbal trackers. Each entry is one pan motor plus one NeoPixel indicator pair.
+# Per-motor / per-tracker pivot offsets from the radar sensor:
 #   pan_pivot_x_mm: Lateral offset of pan pivot from radar (+X = sensor left)
 #   pan_pivot_y_mm: Forward offset of pan pivot from radar (+Y = forward)
 #
 # Note on Z offset:
 #   There is no Z (vertical) offset variable because the LD2450 is a 2D planar
 #   radar (detecting only X and Y coordinates in the horizontal detection plane),
-#   and each skull is currently configured for 1-axis horizontal pan (yaw) rotation.
+#   and each tracker is currently configured for 1-axis horizontal pan (yaw) rotation.
 #   In horizontal planar tracking, the line-of-sight yaw angle is determined solely
 #   by relative X and Y positions: atan2(dx, dy). Any vertical (Z) elevation
 #   difference between the radar plane and the pan pivot has zero geometric effect
 #   on the yaw angle. (A Z offset would only be relevant if 2-axis pan/tilt
 #   mechanisms were implemented to compute pitch/elevation angles).
-SKULLS = (
+TRACKERS = (
     {
-        "name": "Skull 1",
+        "name": "Tracker 1",
         "step_pin": 25,
         "dir_pin": 26,
         "enable_pin": 27,
@@ -48,7 +47,7 @@ SKULLS = (
         "pan_pivot_y_mm": 0.0,
     },
     {
-        "name": "Skull 2",
+        "name": "Tracker 2",
         "step_pin": 18,
         "dir_pin": 19,
         "enable_pin": 21,
@@ -63,7 +62,7 @@ SKULLS = (
 )
 
 # NeoPixel WS2812B eye indicators
-NEOPIXEL_COUNT = 2              # Number of LEDs per skull (one per eye socket)
+NEOPIXEL_COUNT = 2              # Number of LEDs per tracker (one per eye/indicator socket)
 EYE_RED = (255, 0, 0)          # Eye color when actively tracking a target
 EYE_OFF = (0, 0, 0)            # Eye color when sleeping / idle / target lost
 
@@ -103,7 +102,7 @@ MAX_TRACKING_BEARING_RATE_DEG_S = 90.0    # Clamp on target angular speed to rej
 # MAX_TRACKING_BEARING_RATE_DEG_S = 90.0 (45)   # Allows tracking fast swings up close
 # TRACKING_FEEDFORWARD_GAIN = 0.85 (0.65)          # Closer to 1:1 speed matching
 
-# Pan angles are relative to each skull's forward-facing pose. With the current
+# Pan angles are relative to each tracker's forward-facing pose. With the current
 # radar mounting, +X is toward the sensor's left. Positive yaw points to +X.
 PAN_MIN_DEG = -60.0             # Mechanical/software pan limit to the right (deg)
 PAN_MAX_DEG = 60.0              # Mechanical/software pan limit to the left (deg)
@@ -132,23 +131,14 @@ RMT_RESOLUTION_HZ = 1000000     # 1 MHz clock (1 microsecond resolution)
 RMT_PULSE_WIDTH_US = 10         # STEP high pulse duration (microseconds)
 RMT_BURST_SLICE_MS = 15         # Non-blocking slice duration (ms) per RMT pulse burst
 
-# How skulls pick targets from the radar frame:
-#   "nearest_two" - skull 1 follows the nearest valid target, skull 2 the
+# How trackers pick targets from the radar frame:
+#   "nearest_two" - tracker 1 follows the nearest valid target, tracker 2 the
 #                   next-nearest. Either idles when fewer targets exist.
-#   "fixed_slot"  - skull 1 always follows radar slot 1, skull 2 slot 2;
-#                   an empty slot parks that skull.
+#   "fixed_slot"  - tracker 1 always follows radar slot 1, tracker 2 slot 2;
+#                   an empty slot parks that tracker.
 TARGET_ASSIGNMENT_MODE = "fixed_slot"
 
 # "assume" skips homing. Physically place each pan axis at this angle before
 # power-up. Other modes stay locked out until homing code is implemented.
 POSITION_MODE = "assume"
 STARTUP_PAN_DEG = PARK_YAW_DEG  # Initial pan angle assumed at MCU power-up
-
-# Diagnostics & Logging:
-# Set to True while tuning motion parameters to view frame-by-frame tracker
-# status over serial. Set to False for production / smooth motion without
-# serial UART blocking delays.
-ENABLE_FRAME_LOGGING = True
-# Log every Nth radar frame when logging is enabled (1 = every frame ~10 Hz,
-# 2 = every other frame ~5 Hz, reducing serial transmission overhead by half).
-FRAME_LOG_DECIMATION = 5

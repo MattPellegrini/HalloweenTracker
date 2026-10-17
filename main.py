@@ -1,7 +1,7 @@
-"""LD2450-tracked two-skull controller for ESP32 MicroPython.
+"""LD2450-tracked multi-target tracker controller for ESP32 MicroPython.
 
-Each skull is a Tracker: one pan stepper axis plus one NeoPixel eye pair.
-Skull 1 follows the nearest valid radar target, skull 2 the next-nearest.
+Each prop is a Tracker: one pan stepper axis plus one NeoPixel indicator pair.
+Tracker 1 follows the nearest valid radar target, tracker 2 the next-nearest.
 """
 
 import time
@@ -26,16 +26,16 @@ def set_eyes(eyes, color):
 
 
 def find_tmc_drivers():
-    """Open the shared TMC UART and require every skull's driver to reply.
+    """Open the shared TMC UART and require every tracker's driver to reply.
 
     The project uses a single shared half-duplex UART bus for all TMC2209 drivers.
     Each driver is distinguished by its hardware address pins (MS1/MS2). This
     function verifies physical connectivity and valid silicon revision (0x21)
     for each driver before allowing motion.
     """
-    addresses = [skull["tmc_address"] for skull in config.SKULLS]
+    addresses = [tracker["tmc_address"] for tracker in config.TRACKERS]
     if len(set(addresses)) != len(addresses):
-        raise ValueError("each skull must have a distinct TMC UART address")
+        raise ValueError("each tracker must have a distinct TMC UART address")
 
     uart = UART(config.TMC_UART_ID, baudrate=config.TMC_UART_BAUDRATE,
                 bits=8, parity=None, stop=1,
@@ -43,21 +43,21 @@ def find_tmc_drivers():
                 rx=Pin(config.TMC_UART_RX_PIN))
     time.sleep_ms(50)
     drivers = {}
-    for skull in config.SKULLS:
-        driver = TMC2209(uart, slave_address=skull["tmc_address"])
+    for tracker in config.TRACKERS:
+        driver = TMC2209(uart, slave_address=tracker["tmc_address"])
         try:
             ioin = driver.read_register(REG_IOIN)
         except OSError as error:
             uart.deinit()
             raise OSError("{} driver at address {} did not reply: {}".format(
-                skull["name"], skull["tmc_address"], error))
+                tracker["name"], tracker["tmc_address"], error))
         if (ioin >> 24) != 0x21:
             uart.deinit()
             raise OSError("unexpected {} TMC2209 version: IOIN=0x{:08x}".
-                          format(skull["name"], ioin))
-        drivers[skull["name"]] = driver
+                          format(tracker["name"], ioin))
+        drivers[tracker["name"]] = driver
         print("{} TMC2209 replied at address {}; IOIN=0x{:08x}".
-              format(skull["name"], skull["tmc_address"], ioin))
+              format(tracker["name"], tracker["tmc_address"], ioin))
     return uart, drivers
 
 
@@ -91,34 +91,34 @@ def configure_driver(driver, name, run_current_ma, hold_current_ma):
 
 
 class Tracker:
-    """Controls one skull prop: pan stepper axis, eye LEDs, and tracking pipeline.
+    """Controls one tracker prop: pan stepper axis, status LEDs, and tracking pipeline.
 
     A Tracker encapsulates all motion, LED state, target filtering, and position
-    history for a single skull. Each instance maintains:
+    history for a single tracker. Each instance maintains:
       - Stepper motor control via StepperAxis (hardware RMT pulse generation).
-      - NeoPixel eye color state (red when tracking, dark when idle/parked).
+      - NeoPixel eye/indicator color state (red when tracking, dark when idle/parked).
       - Target filtering, angular velocity estimation, and exponential smoothing.
       - Dual-threshold deadband hysteresis and velocity slew rate limiting.
     """
 
-    def __init__(self, skull):
-        self.name = skull["name"]
+    def __init__(self, tracker_cfg):
+        self.name = tracker_cfg["name"]
 
         # --- Hardware Pins and Actuators ---
         # Direct GPIO pin controls passed to the StepperAxis:
-        self.step_pin = Pin(skull["step_pin"], Pin.OUT, value=0)
-        self.direction_pin = Pin(skull["dir_pin"], Pin.OUT, value=0)
-        self.enable_pin = Pin(skull["enable_pin"], Pin.OUT, value=1)
+        self.step_pin = Pin(tracker_cfg["step_pin"], Pin.OUT, value=0)
+        self.direction_pin = Pin(tracker_cfg["dir_pin"], Pin.OUT, value=0)
+        self.enable_pin = Pin(tracker_cfg["enable_pin"], Pin.OUT, value=1)
 
-        # Eye illumination (WS2812B NeoPixel chain):
-        self.eyes = neopixel.NeoPixel(Pin(skull["eyes_pin"]),
+        # Eye/status illumination (WS2812B NeoPixel chain):
+        self.eyes = neopixel.NeoPixel(Pin(tracker_cfg["eyes_pin"]),
                                       config.NEOPIXEL_COUNT)
         set_eyes(self.eyes, config.EYE_OFF)
 
         # Prop geometry: position of this motor's pan axis relative to the radar.
         # (+X = sensor left, +Y = forward into detection zone)
-        self.pan_pivot_x_mm = skull.get("pan_pivot_x_mm", 0.0)
-        self.pan_pivot_y_mm = skull.get("pan_pivot_y_mm", 0.0)
+        self.pan_pivot_x_mm = tracker_cfg.get("pan_pivot_x_mm", 0.0)
+        self.pan_pivot_y_mm = tracker_cfg.get("pan_pivot_y_mm", 0.0)
         self.pan_pivot_xyz = (self.pan_pivot_x_mm, self.pan_pivot_y_mm, 0)
 
         # Motion axis with ESP32 hardware RMT pulse generation:
@@ -134,7 +134,7 @@ class Tracker:
             config.MAX_STEP_RATE,
             config.ENABLE_ACTIVE_LOW,
             config.STARTUP_PAN_DEG,
-            skull["direction_inverted"],
+            tracker_cfg["direction_inverted"],
             rmt_resolution_hz=getattr(config, "RMT_RESOLUTION_HZ", 1000000),
             pulse_width_us=getattr(config, "RMT_PULSE_WIDTH_US", 10),
             burst_slice_ms=getattr(config, "RMT_BURST_SLICE_MS", 15),
@@ -159,10 +159,6 @@ class Tracker:
         # self.current_target: (x_mm, y_mm, speed_cm_s, resolution_mm) tuple of
         # currently tracked target. Retained across brief radar dropouts until TARGET_LOST_MS.
         self.current_target = None
-
-        # self.last_assigned_target: Target tuple assigned in the MOST RECENT radar frame
-        # (or None if no target in this frame). Used for frame telemetry logging.
-        self.last_assigned_target = None
 
         # self.last_target_ms: System timestamp (ms) when a valid target was last received.
         # Used to evaluate timeout against config.TARGET_LOST_MS.
@@ -196,27 +192,20 @@ class Tracker:
         # current pointing error and target bearing speed.
         self.desired_rate = config.MIN_TRACKING_STEP_RATE
 
-        # --- Telemetry & Diagnostics ---
-        # self.last_frame_steps: Stepper position (in steps) at previous radar frame,
-        # used to compute delta steps moved per frame in telemetry logs.
-        self.last_frame_steps = self.axis.position_steps
-
     def on_radar_frame(self, target, now_ms):
-        """Record this skull's assigned target from the latest radar frame.
+        """Record this tracker's assigned target from the latest radar frame.
 
         Parameters:
           target: (x_mm, y_mm, speed_cm_s, resolution_mm) tuple from the radar,
-                  or None if no target is assigned to this skull.
+                  or None if no target is assigned to this tracker.
           now_ms: Monotonic millisecond timestamp of the radar frame.
 
         Processing:
-          1. Retains last_assigned_target for frame telemetry logging.
-          2. Updates current_target and refreshes last_target_ms (postponing timeout).
-          3. Solves the geometric line-of-sight yaw angle from radar coordinates.
-          4. Estimates target angular velocity (bearing rate in deg/s) and applies
+          1. Updates current_target and refreshes last_target_ms (postponing timeout).
+          2. Solves the geometric line-of-sight yaw angle from radar coordinates.
+          3. Estimates target angular velocity (bearing rate in deg/s) and applies
              a low-pass filter to provide feed-forward velocity pacing.
         """
-        self.last_assigned_target = target
         if target is None:
             self.last_raw_yaw = None
             return
@@ -396,44 +385,6 @@ class Tracker:
         else:
             self.axis.set_enabled(False)
 
-    def format_frame_log(self, prefix, delta_steps, delta_deg):
-        """Format a single-line status log for this frame."""
-        if self.last_assigned_target is not None and self.last_raw_yaw is not None:
-            x_mm, y_mm, speed_cm_s, _ = self.last_assigned_target
-            tgt_str = "tgt=({:4d},{:4d},{:3d})".format(
-                x_mm, y_mm, speed_cm_s)
-            raw_str = "raw={:+5.1f}".format(self.last_raw_yaw)
-        else:
-            tgt_str = "tgt=None          "
-            raw_str = "raw= None"
-
-        sm_val = (self.smoothed_yaw if self.smoothed_yaw is not None
-                  else config.PARK_YAW_DEG)
-        sm_str = "sm={:+5.1f}".format(sm_val)
-
-        cur_deg = self.axis.position_steps / self.axis.steps_per_degree
-        pos_str = "pos={:+5.1f}".format(cur_deg)
-
-        err_deg = self.target_yaw - cur_deg
-        err_str = "err={:+5.1f}".format(err_deg)
-
-        step_str = "step={:+4d} ({:+5.1f}deg)".format(int(delta_steps), delta_deg)
-        rate_str = "pps={:4d}".format(int(self.axis.step_rate))
-        brg_str = "brg={:4.1f}".format(self.filtered_yaw_rate)
-
-        if self.awake:
-            if self.last_assigned_target is not None:
-                state = ("REV" if self.reversing
-                         else ("TRK" if self.moving else "HOLD"))
-            else:
-                state = "COAST" if self.moving else "IDLE"
-        else:
-            state = "PARK" if self.moving else "SLEEP"
-
-        return "{} {}: {} {} {} {} {} {} {} {} [{:5s}]".format(
-            prefix, self.name, tgt_str, raw_str, sm_str, pos_str,
-            err_str, step_str, rate_str, brg_str, state)
-
     def run(self):
         """Dispatch hardware RMT pulse burst slice or bit-bang fallback step."""
         self.axis.run()
@@ -448,10 +399,10 @@ def main():
     """Main program entry point: initialize hardware and run real-time tracking loop."""
     if config.POSITION_MODE != "assume":
         raise RuntimeError("selected position mode is not implemented")
-    print("Startup pose: every skull pan at {} deg".format(
+    print("Startup pose: every tracker pan at {} deg".format(
         config.STARTUP_PAN_DEG))
 
-    trackers = [Tracker(skull) for skull in config.SKULLS]
+    trackers = [Tracker(tracker_cfg) for tracker_cfg in config.TRACKERS]
     tmc_uart = None
     radar_uart = None
     try:
@@ -459,9 +410,9 @@ def main():
         tmc_uart, drivers = find_tmc_drivers()
         print("All TMC2209s found at {} baud; configuring before motion.".
               format(config.TMC_UART_BAUDRATE))
-        for skull in config.SKULLS:
-            configure_driver(drivers[skull["name"]], skull["name"],
-                             skull["run_current_ma"], skull["hold_current_ma"])
+        for tracker_cfg in config.TRACKERS:
+            configure_driver(drivers[tracker_cfg["name"]], tracker_cfg["name"],
+                             tracker_cfg["run_current_ma"], tracker_cfg["hold_current_ma"])
 
         # 2. Open LD2450 radar UART and initialize streaming reader
         radar_uart = UART(config.RADAR_UART_ID, baudrate=config.RADAR_BAUDRATE,
@@ -489,37 +440,16 @@ def main():
         active_str = ", ".join(features) if features else "pure direct baseline"
         print("Trackers running: 1/{} microsteps ({})".format(
             config.MICROSTEPS, active_str))
-        if config.ENABLE_FRAME_LOGGING:
-            print("Log columns: [#frame +dt_ms L:loops] Skull: tgt=(x,y,spd) "
-                  "raw=deg sm=deg pos=deg err=deg step=N (deg) pps=rate brg=deg/s [STATE]")
 
-        radar_frame_count = 0
-        last_frame_ms = time.ticks_ms()
         last_update_ms = time.ticks_ms()
-        loop_iterations = 0
 
         # --- Main Real-Time Control Loop ---
         while True:
-            loop_iterations += 1
-
             # (A) Poll radar for new decoded frames (~10 Hz)
             targets = radar.poll()
             now_ms = time.ticks_ms()
             if targets is not None:
-                radar_frame_count += 1
-                frame_dt_ms = time.ticks_diff(now_ms, last_frame_ms)
-                last_frame_ms = now_ms
-
-                # Record motor motion since previous radar frame
-                moves = []
-                for tracker in trackers:
-                    steps = (tracker.axis.position_steps -
-                             tracker.last_frame_steps)
-                    tracker.last_frame_steps = tracker.axis.position_steps
-                    deg = steps / tracker.axis.steps_per_degree
-                    moves.append((steps, deg))
-
-                # Assign radar targets to skulls (fixed_slot or nearest_two)
+                # Assign radar targets to trackers (fixed_slot or nearest_two)
                 assigned = choose_two_targets(targets,
                                               config.MIN_TARGET_RANGE_MM,
                                               config.MAX_TARGET_RANGE_MM,
@@ -532,16 +462,6 @@ def main():
                 last_update_ms = now_ms
                 for tracker in trackers:
                     tracker.update(now_ms, update_elapsed_ms)
-
-                # Optional frame-by-frame status telemetry
-                if config.ENABLE_FRAME_LOGGING:
-                    decimation = getattr(config, "FRAME_LOG_DECIMATION", 1)
-                    if decimation <= 1 or (radar_frame_count % decimation) == 0:
-                        prefix = "[#{:04d} +{:3d}ms L:{:2d}]".format(
-                            radar_frame_count, frame_dt_ms, loop_iterations)
-                        for tracker, (steps, deg) in zip(trackers, moves):
-                            print(tracker.format_frame_log(prefix, steps, deg))
-                loop_iterations = 0
 
             # (B) Periodic tracking update at 50 Hz (every TRACKING_UPDATE_MS = 20 ms)
             update_elapsed_ms = time.ticks_diff(now_ms, last_update_ms)

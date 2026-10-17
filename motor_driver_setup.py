@@ -1,4 +1,4 @@
-"""Configure and verify TMC2209 drivers for each skull; this script never steps a motor."""
+"""Configure and verify TMC2209 drivers for each tracker; this script never steps a motor."""
 
 import time
 from machine import Pin, UART
@@ -7,9 +7,9 @@ import config
 from tmc2209 import REG_GLOBALSCALER, REG_IOIN, TMC2209
 
 
-def configure_skull_driver(driver, skull):
-    name = skull["name"]
-    address = skull["tmc_address"]
+def configure_tracker_driver(driver, tracker_cfg):
+    name = tracker_cfg["name"]
+    address = tracker_cfg["tmc_address"]
 
     ioin = driver.read_register(REG_IOIN)
     version = ioin >> 24
@@ -29,8 +29,8 @@ def configure_skull_driver(driver, skull):
     print("  GLOBALSCALER write accepted; IFCNT={}".format(scaler_ifcnt))
 
     run_cs, hold_cs, current_register, current_ifcnt = driver.configure_current(
-        skull["run_current_ma"],
-        skull["hold_current_ma"],
+        tracker_cfg["run_current_ma"],
+        tracker_cfg["hold_current_ma"],
         config.TMC_SENSE_RESISTOR_OHMS,
         config.TMC_VSENSE_VOLTS,
     )
@@ -40,8 +40,8 @@ def configure_skull_driver(driver, skull):
             run_cs,
             hold_cs,
             current_ifcnt,
-            skull["run_current_ma"],
-            skull["hold_current_ma"],
+            tracker_cfg["run_current_ma"],
+            tracker_cfg["hold_current_ma"],
         )
     )
 
@@ -71,19 +71,19 @@ def main():
                 config.TMC_UART_ID, config.TMC_UART_BAUDRATE
             )
         )
-        print("Configuring {} skull driver(s)...".format(len(config.SKULLS)))
+        print("Configuring {} tracker driver(s)...".format(len(config.TRACKERS)))
 
         configured = 0
-        for skull in config.SKULLS:
-            name = skull["name"]
-            address = skull.get("tmc_address")
+        for tracker_cfg in config.TRACKERS:
+            name = tracker_cfg["name"]
+            address = tracker_cfg.get("tmc_address")
             if address is None:
                 print("Skipping {}: no tmc_address defined".format(name))
                 continue
 
             driver = TMC2209(uart, slave_address=address)
             try:
-                configure_skull_driver(driver, skull)
+                configure_tracker_driver(driver, tracker_cfg)
                 configured += 1
             except OSError as error:
                 print(
@@ -94,7 +94,7 @@ def main():
 
         print(
             "\nSetup summary: {}/{} driver(s) configured successfully.".format(
-                configured, len(config.SKULLS)
+                configured, len(config.TRACKERS)
             )
         )
         print("No motor motion was commanded. Power-cycle resets volatile settings;")

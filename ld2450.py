@@ -44,7 +44,7 @@ def decode_frame_slots(frame):
       or None if that target slot is unoccupied.
 
     Preserving slot positions is essential for 'fixed_slot' target assignment
-    so that Skull 1 stays locked to radar slot 1 and Skull 2 to slot 2.
+    so that Tracker 1 stays locked to radar slot 1 and Tracker 2 to slot 2.
     """
     if len(frame) != FRAME_LENGTH:
         raise ValueError("LD2450 frame must be 30 bytes")

@@ -122,12 +122,12 @@ not assume that leaving MS1/MS2 open gives the software-configured resolution.
 
 Run `motor_driver_setup.py` with the motors unplugged at their motor-end connectors
 and the drivers powered from a suitable 12 V VM supply. It checks UART
-response for each skull in `SKULLS`, then sets each skull's configured run current,
+response for each tracker in `TRACKERS`, then sets each tracker's configured run current,
 hold current, and microstep mode. GCONF and CHOPCONF are read back. Writes to
 GLOBALSCALER and IHOLD_IRUN are verified through IFCNT because IHOLD_IRUN is
 not read back by this setup. It never commands motor steps. Stop if the initial
 UART read fails. These register values are volatile and reset when driver
-power is removed. The main skull controller configures both drivers at startup.
+power is removed. The main controller configures both drivers at startup.
 
 For a 1.8 degree motor at 1/16, the driver receives 3,200 STEP pulses per
 revolution. The TMC2209's interpolation setting does not change that input

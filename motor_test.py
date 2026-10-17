@@ -1,4 +1,4 @@
-"""No-load motor test; verifies signal wiring and driver status, spins each skull motor:
+"""No-load motor test; verifies signal wiring and driver status, spins each tracker motor:
 1) 360 degrees forward and back at constant test speed,
 2) 30 degrees forward and back at minimum tracking speed,
 3) 360 degrees forward and back with slewed acceleration and deceleration
@@ -59,8 +59,8 @@ def configure_tmc_drivers():
         return None, {}
 
     drivers = {}
-    for skull in config.SKULLS:
-        address = skull.get("tmc_address")
+    for tracker_cfg in config.TRACKERS:
+        address = tracker_cfg.get("tmc_address")
         if address is None:
             continue
         try:
@@ -69,33 +69,33 @@ def configure_tmc_drivers():
             if (ioin >> 24) != 0x21:
                 print(
                     "{}: unexpected TMC2209 version IOIN=0x{:08x}".format(
-                        skull["name"], ioin
+                        tracker_cfg["name"], ioin
                     )
                 )
                 continue
             driver.configure_uart_mode()
             driver.write_register_confirmed(REG_GLOBALSCALER, 0)
             driver.configure_current(
-                skull["run_current_ma"],
-                skull["hold_current_ma"],
+                tracker_cfg["run_current_ma"],
+                tracker_cfg["hold_current_ma"],
                 config.TMC_SENSE_RESISTOR_OHMS,
                 config.TMC_VSENSE_VOLTS,
             )
             driver.configure_microsteps(config.MICROSTEPS)
-            drivers[skull["name"]] = driver
+            drivers[tracker_cfg["name"]] = driver
             print(
                 "{}: TMC2209 configured at address {} (1/{} microsteps, {} mA run / {} mA hold)".format(
-                    skull["name"],
+                    tracker_cfg["name"],
                     address,
                     config.MICROSTEPS,
-                    skull["run_current_ma"],
-                    skull["hold_current_ma"],
+                    tracker_cfg["run_current_ma"],
+                    tracker_cfg["hold_current_ma"],
                 )
             )
         except Exception as error:
             print(
                 "Could not configure TMC for {} at address {}: {}".format(
-                    skull["name"], address, error
+                    tracker_cfg["name"], address, error
                 )
             )
 
@@ -314,15 +314,15 @@ def main():
     enable_inactive = 1 if config.ENABLE_ACTIVE_LOW else 0
     enable_active = 0 if config.ENABLE_ACTIVE_LOW else 1
 
-    # Pre-initialize pins for all skulls to safe/disabled state
-    skull_controls = []
-    for skull in config.SKULLS:
-        step_pin = Pin(skull["step_pin"], Pin.OUT, value=0)
-        dir_pin = Pin(skull["dir_pin"], Pin.OUT, value=0)
-        enable_pin = Pin(skull["enable_pin"], Pin.OUT, value=enable_inactive)
-        skull_controls.append(
+    # Pre-initialize pins for all trackers to safe/disabled state
+    tracker_controls = []
+    for tracker_cfg in config.TRACKERS:
+        step_pin = Pin(tracker_cfg["step_pin"], Pin.OUT, value=0)
+        dir_pin = Pin(tracker_cfg["dir_pin"], Pin.OUT, value=0)
+        enable_pin = Pin(tracker_cfg["enable_pin"], Pin.OUT, value=enable_inactive)
+        tracker_controls.append(
             {
-                "skull": skull,
+                "tracker": tracker_cfg,
                 "step_pin": step_pin,
                 "dir_pin": dir_pin,
                 "enable_pin": enable_pin,
@@ -347,15 +347,15 @@ def main():
     slewed_360_time_s = (2.0 * accel_time_s) + cruise_time_s
 
     print(
-        "Motor test: {} skull(s), {} steps per 360-deg revolution (1/{} microsteps)".format(
-            len(config.SKULLS), STEPS_PER_REVOLUTION, config.MICROSTEPS
+        "Motor test: {} tracker(s), {} steps per 360-deg revolution (1/{} microsteps)".format(
+            len(config.TRACKERS), STEPS_PER_REVOLUTION, config.MICROSTEPS
         )
     )
     if check_only:
         print("Mode: CHECK ONLY (motion skipped; testing signals and enable states)")
     else:
         print(
-            "Motion tests per skull:\n"
+            "Motion tests per tracker:\n"
             "  1) 360 deg constant: {:.1f} deg/s ({:.2f} s)\n"
             "  2) 30 deg min speed: {:.1f} deg/s ({} pps, {:.2f} s)\n"
             "  3) 360 deg slewed:   {} -> {} -> {} pps ({:.1f} to {:.1f} deg/s, slew {} pps/s, {:.2f} s)".format(
@@ -378,15 +378,15 @@ def main():
     tmc_uart, drivers = configure_tmc_drivers()
 
     try:
-        for index, item in enumerate(skull_controls, start=1):
-            skull = item["skull"]
+        for index, item in enumerate(tracker_controls, start=1):
+            tracker_cfg = item["tracker"]
             step_pin = item["step_pin"]
             dir_pin = item["dir_pin"]
             enable_pin = item["enable_pin"]
-            driver = drivers.get(skull["name"])
+            driver = drivers.get(tracker_cfg["name"])
 
             print(
-                "\n[{}/{}] Testing {}:".format(index, len(skull_controls), skull["name"])
+                "\n[{}/{}] Testing {}:".format(index, len(tracker_controls), tracker_cfg["name"])
             )
 
             # 1. STEP/DIR Signal line test while disabled (from pan_signal_test.py)
@@ -396,7 +396,7 @@ def main():
                 if not signals_ok:
                     print(
                         "  WARNING: Signal verification failed for {}! Check STEP/DIR wiring.".format(
-                            skull["name"]
+                            tracker_cfg["name"]
                         )
                     )
                 read_driver_status(driver, "pre-enable status")
@@ -419,12 +419,12 @@ def main():
                             resolution_hz=getattr(config, "RMT_RESOLUTION_HZ", 1000000),
                             idle_level=False,
                         )
-                        print("  [RMT hardware pulse generator active on pin {}]".format(skull["step_pin"]))
+                        print("  [RMT hardware pulse generator active on pin {}]".format(tracker_cfg["step_pin"]))
                     except Exception as err:
                         print("  (RMT init failed: {}, falling back to bit-bang)".format(err))
                         rmt = None
 
-                inverted = skull.get("direction_inverted", False)
+                inverted = tracker_cfg.get("direction_inverted", False)
                 fwd_dir = 1 if inverted else 0
                 rev_dir = 0 if inverted else 1
 
@@ -531,12 +531,12 @@ def main():
             if driver is not None:
                 read_driver_status(driver, "disabled status")
 
-            if index < len(skull_controls):
+            if index < len(tracker_controls):
                 time.sleep_ms(500)
 
-        print("\nAll skull tests completed; all drivers disabled.")
+        print("\nAll tracker tests completed; all drivers disabled.")
     finally:
-        for item in skull_controls:
+        for item in tracker_controls:
             item["enable_pin"].value(enable_inactive)
             item["step_pin"].value(0)
         if tmc_uart is not None:

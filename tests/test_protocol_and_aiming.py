@@ -141,14 +141,14 @@ class AimingTests(unittest.TestCase):
         self.assertAlmostEqual(yaw_no_z, yaw_with_z)
 
 
-class SkullConfigTests(unittest.TestCase):
-    def test_skulls_have_independent_pivot_offsets(self):
-        self.assertGreater(len(config.SKULLS), 0)
-        for skull in config.SKULLS:
-            self.assertIn("pan_pivot_x_mm", skull)
-            self.assertIn("pan_pivot_y_mm", skull)
-            self.assertIsInstance(skull["pan_pivot_x_mm"], (int, float))
-            self.assertIsInstance(skull["pan_pivot_y_mm"], (int, float))
+class TrackerConfigTests(unittest.TestCase):
+    def test_trackers_have_independent_pivot_offsets(self):
+        self.assertGreater(len(config.TRACKERS), 0)
+        for tracker in config.TRACKERS:
+            self.assertIn("pan_pivot_x_mm", tracker)
+            self.assertIn("pan_pivot_y_mm", tracker)
+            self.assertIsInstance(tracker["pan_pivot_x_mm"], (int, float))
+            self.assertIsInstance(tracker["pan_pivot_y_mm"], (int, float))
 
 
 class TargetSelectorTests(unittest.TestCase):
@@ -258,7 +258,7 @@ class TwoTargetSelectionTests(unittest.TestCase):
                                            300, 6000, "fixed_slot")
         self.assertEqual(first, farther)
         self.assertEqual(second, nearest)
-        # Empty slot 1 with a target in slot 2: skull 1 idles, skull 2 works.
+        # Empty slot 1 with a target in slot 2: tracker 1 idles, tracker 2 works.
         first, second = choose_two_targets([None, nearest, None],
                                            300, 6000, "fixed_slot")
         self.assertIsNone(first)

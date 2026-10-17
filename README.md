@@ -1,24 +1,24 @@
-# Halloween Skull Trackers
+# Multi-Target Radar Trackers
 
 MicroPython project for an ESP32-WROOM-32E/uPesy board, Hi-Link LD2450 radar,
 two BTT TMC2209 V1.3 stepper drivers, two NEMA17 pan motors, and two pairs of
-NeoPixel eye LEDs — one motor + one eye pair per skull prop. Each skull parks
-facing forward with eyes off, wakes red-eyed when the radar detects a person,
+NeoPixel indicator LEDs — one motor + one LED pair per tracker prop. Each tracker parks
+facing forward with LEDs off, wakes with illuminated indicators when the radar detects a person,
 and pans independently to follow its assigned target.
 
 ## Current Status
 
-The project architecture is **two independent 1-axis (pan-only) skull trackers**
+The project architecture is **two independent 1-axis (pan-only) trackers**
 sharing a single ESP32 MCU, one Hi-Link LD2450 mmWave radar, and one shared-wire
-TMC2209 UART bus. The earlier single 2-axis (pan/tilt) skull prototype was
-pivoted to this dual 1-axis layout; the second skull reuses the driver, wiring,
+TMC2209 UART bus. The earlier single 2-axis (pan/tilt) prototype was
+pivoted to this dual 1-axis layout; the second tracker reuses the driver, wiring,
 and NEMA17 motor originally allocated for tilt.
 
 - **Radar**: The LD2450 produces valid 3-target tracking frames at ~10 Hz over
   UART2 at 256000 baud. The coordinate mapping has been verified on hardware
   (+Y is forward, +X is toward the sensor's left with the inverted physical mount).
 - **Stepper Drivers**: Both BTT TMC2209 V1.3 drivers are addressed on a shared
-  single-wire UART bus (Skull 1 at address 0, Skull 2 at address 1). Digital
+  single-wire UART bus (Tracker 1 at address 0, Tracker 2 at address 1). Digital
   UART configuration reliably verifies `GCONF` (UART mode), accepts `GLOBALSCALER`
   and `IHOLD_IRUN` writes via `IFCNT` confirmation, and configures `CHOPCONF`
   for 1/16 microstepping.
@@ -32,22 +32,22 @@ and NEMA17 motor originally allocated for tilt.
     when far and easing gently as the target is centered.
   - Target-bearing rate feed-forward anticipates moving targets, gated off below
     3° of error to prevent radar noise from causing ticking.
-  - A 250 ms low-pass target smoother filters raw radar coordinate fluctuations.
+  - A 150 ms low-pass target smoother filters raw radar coordinate fluctuations.
   - Slew rate limiting (14,400 pps/s) and brake-before-reverse prevent skipped steps.
   - A 2-microstep (~0.225°) micro-hysteresis deadband prevents hunting over single
     rounding digits at rest, while tracking smoothly and continuously when moving.
   - EN remains enabled while awake; the TMC2209 drops silently to IHOLD (390 mA)
     at rest with zero coil-snap clunking. EN is only disabled in SLEEP/parked state.
 - **Target Assignment**: Configurable via `TARGET_ASSIGNMENT_MODE` in `config.py`:
-  - `nearest_two`: Skull 1 follows the closest target; Skull 2 follows the next
-    closest target. Either skull idles/parks when fewer targets are present.
-  - `fixed_slot`: Skull 1 follows radar slot 1; Skull 2 follows radar slot 2.
-    An empty slot returns that skull to its forward park pose.
+  - `nearest_two`: Tracker 1 follows the closest target; Tracker 2 follows the next
+    closest target. Either tracker idles/parks when fewer targets are present.
+  - `fixed_slot`: Tracker 1 follows radar slot 1; Tracker 2 follows radar slot 2.
+    An empty slot returns that tracker to its forward park pose.
 - **Main Control Loop**: See [MAIN_LOOP.md](MAIN_LOOP.md) for a detailed breakdown
   and sequence diagrams of the 50 Hz real-time tracking and RMT hardware pulse slicing loop.
-- **Unit Tests**: 29 host tests in `tests/test_protocol_and_aiming.py` pass.
+- **Unit Tests**: 32 host tests in `tests/test_protocol_and_aiming.py` pass.
 - **Physical Commissioning**: Unloaded bare-motor movements and UART diagnostics
-  are verified. Full skull prop linkage assembly and the second eye pair remain
+  are verified. Full prop linkage assembly and the second indicator pair remain
   to be commissioned.
 
 ## Hardware And Wiring
@@ -64,15 +64,15 @@ and NEMA17 motor originally allocated for tilt.
     resistor.
   - Leave each driver's separate `TX` pad and `CLK` unconnected; leave R10 in its
     factory state. Both drivers share 115200 baud communication.
-- **Skull 1 (Address 0)**:
+- **Tracker 1 (Address 0)**:
   - TMC2209 address: 0 (MS1 and MS2 left low/open).
   - STEP: GPIO25, DIR: GPIO26, active-low EN: GPIO27.
-  - Eye LEDs: NeoPixel data DIN on GPIO13 (2 LEDs, red when tracking, off when
+  - Eye/status LEDs: NeoPixel data DIN on GPIO13 (2 LEDs, red when tracking, off when
     idle).
-- **Skull 2 (Address 1)**:
+- **Tracker 2 (Address 1)**:
   - TMC2209 address: 1 (strap MS1 to 3V3 / VIO, strap MS2 to GND).
   - STEP: GPIO18, DIR: GPIO19, active-low EN: GPIO21.
-  - Eye LEDs: NeoPixel data DIN on GPIO14 (2 LEDs, red when tracking, off when
+  - Eye/status LEDs: NeoPixel data DIN on GPIO14 (2 LEDs, red when tracking, off when
     idle).
 - **Motors**: Two StepperOnline 17HE19-2004S NEMA17 steppers (1.8°/step, rated 2 A
   per phase). Coil pair 1: black (A1), blue (A2); coil pair 2: red (B1), green
@@ -182,19 +182,19 @@ while 12 V VM is energized.
 
 ## Script Guide
 
-| Script / Module                     | Purpose                                                                                                                                                                                                                                                                 | Execution / Usage                                                                                                                                                                                                     |
-| ----------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `main.py`                           | Main application: configures both TMC2209 drivers, polls the LD2450 radar, assigns targets (`nearest_two` or `fixed_slot`), smoothly steers both skulls independently, and controls red/off eye NeoPixels.                                                              | Upload core modules and `main.py`, then run `./venv/bin/mpremote connect /dev/cu.SLAB_USBtoUART run main.py`.                                                                                                         |
-| `radar_test.py`                     | Standalone radar monitor: prints valid frame counts and decoded target coordinates once per second; does not toggle motor pins.                                                                                                                                         | Upload `config.py` and `ld2450.py`, then run `./venv/bin/mpremote connect /dev/cu.SLAB_USBtoUART run radar_test.py`. Stop with Ctrl-C.                                                                                |
-| `motor_driver_setup.py`             | Probes shared UART and configures both TMC2209 drivers (UART mode, currents, 1/8 microstepping), verifying writes via IFCNT and register readbacks. Sends no STEP pulses.                                                                                               | With motor drivers powered and shafts clear, run `./venv/bin/mpremote connect /dev/cu.SLAB_USBtoUART run motor_driver_setup.py`.                                                                                      |
-| `motor_test.py`                     | Comprehensive motor & driver test: verifies STEP/DIR signal line continuity via `IOIN` (disabled), verifies enable/driver status (`DRV_STATUS`), then spins each skull motor 360° out and back sequentially. Supports `--check-only` / `--signals-only` to skip motion. | Run with bare shafts clear: `./venv/bin/mpremote connect /dev/cu.SLAB_USBtoUART run motor_test.py`. For non-moving signal check: `./venv/bin/mpremote connect /dev/cu.SLAB_USBtoUART run motor_test.py --check-only`. |
-| `config.py`                         | Central configuration: hardware pin map (`SKULLS`), UART baud rates, microstepping, step rates, angular limits, geometry offsets, and target assignment modes.                                                                                                          | Imported by scripts; edit to tune prop parameters.                                                                                                                                                                    |
-| `ld2450.py`                         | Streaming LD2450 radar frame parser supporting compact valid lists and indexed 3-slot target frames.                                                                                                                                                                    | Imported by `radar_test.py` and `main.py`.                                                                                                                                                                            |
-| `tmc2209.py`                        | TMC2209 UART driver: CRC calculation, packet framing, register read/write, IFCNT write verification, current scaling, and microstepping helpers.                                                                                                                        | Imported by motor setup and controller scripts.                                                                                                                                                                       |
-| `aiming.py`                         | Geometry calculations: solves pan yaw angle from target (X, Y) coordinates relative to prop pivot and applies travel limits.                                                                                                                                            | Imported by `main.py`; unit tested.                                                                                                                                                                                   |
-| `tracking.py`                       | Target selection logic (`choose_two_targets`), start/stop deadband hysteresis, exponential error-shaped velocity, bearing rate feed-forward, target smoothing, and slew rate limiting.                                                                                  | Imported by `main.py`; unit tested.                                                                                                                                                                                   |
-| `stepper.py`                        | Non-blocking STEP/DIR stepper axis controller with hardware ESP32 RMT pulse generation, angle tracking, and soft limits.                                                                                                                                                | Imported by `main.py`.                                                                                                                                                                                                |
-| `tests/test_protocol_and_aiming.py` | Host unit test suite (28 tests) covering LD2450 parsing, 3-slot decoding, target assignment, aiming geometry, motion shaping, RMT pulse generation, and TMC2209 UART.                                                                                                   | Run on host: `./venv/bin/python -m unittest discover -s tests`.                                                                                                                                                       |
+| Script / Module                     | Purpose                                                                                                                                                                                                                                                                   | Execution / Usage                                                                                                                                                                                                     |
+| ----------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `main.py`                           | Main application: configures both TMC2209 drivers, polls the LD2450 radar, assigns targets (`nearest_two` or `fixed_slot`), smoothly steers both trackers independently, and controls red/off status NeoPixels.                                                           | Upload core modules and `main.py`, then run `./venv/bin/mpremote connect /dev/cu.SLAB_USBtoUART run main.py`.                                                                                                         |
+| `radar_test.py`                     | Standalone radar monitor: prints valid frame counts and decoded target coordinates once per second; does not toggle motor pins.                                                                                                                                           | Upload `config.py` and `ld2450.py`, then run `./venv/bin/mpremote connect /dev/cu.SLAB_USBtoUART run radar_test.py`. Stop with Ctrl-C.                                                                                |
+| `motor_driver_setup.py`             | Probes shared UART and configures both TMC2209 drivers (UART mode, currents, 1/16 microstepping), verifying writes via IFCNT and register readbacks. Sends no STEP pulses.                                                                                                | With motor drivers powered and shafts clear, run `./venv/bin/mpremote connect /dev/cu.SLAB_USBtoUART run motor_driver_setup.py`.                                                                                      |
+| `motor_test.py`                     | Comprehensive motor & driver test: verifies STEP/DIR signal line continuity via `IOIN` (disabled), verifies enable/driver status (`DRV_STATUS`), then spins each tracker motor 360° out and back sequentially. Supports `--check-only` / `--signals-only` to skip motion. | Run with bare shafts clear: `./venv/bin/mpremote connect /dev/cu.SLAB_USBtoUART run motor_test.py`. For non-moving signal check: `./venv/bin/mpremote connect /dev/cu.SLAB_USBtoUART run motor_test.py --check-only`. |
+| `config.py`                         | Central configuration: hardware pin map (`TRACKERS`), UART baud rates, microstepping, step rates, angular limits, geometry offsets, and target assignment modes.                                                                                                          | Imported by scripts; edit to tune prop parameters.                                                                                                                                                                    |
+| `ld2450.py`                         | Streaming LD2450 radar frame parser supporting compact valid lists and indexed 3-slot target frames.                                                                                                                                                                      | Imported by `radar_test.py` and `main.py`.                                                                                                                                                                            |
+| `tmc2209.py`                        | TMC2209 UART driver: CRC calculation, packet framing, register read/write, IFCNT write verification, current scaling, and microstepping helpers.                                                                                                                          | Imported by motor setup and controller scripts.                                                                                                                                                                       |
+| `aiming.py`                         | Geometry calculations: solves pan yaw angle from target (X, Y) coordinates relative to prop pivot and applies travel limits.                                                                                                                                              | Imported by `main.py`; unit tested.                                                                                                                                                                                   |
+| `tracking.py`                       | Target selection logic (`choose_two_targets`), start/stop deadband hysteresis, exponential error-shaped velocity, bearing rate feed-forward, target smoothing, and slew rate limiting.                                                                                    | Imported by `main.py`; unit tested.                                                                                                                                                                                   |
+| `stepper.py`                        | Non-blocking STEP/DIR stepper axis controller with hardware ESP32 RMT pulse generation, angle tracking, and soft limits.                                                                                                                                                  | Imported by `main.py`.                                                                                                                                                                                                |
+| `tests/test_protocol_and_aiming.py` | Host unit test suite (32 tests) covering LD2450 parsing, 3-slot decoding, target assignment, aiming geometry, motion shaping, RMT pulse generation, and TMC2209 UART.                                                                                                     | Run on host: `./venv/bin/python -m unittest discover -s tests`.                                                                                                                                                       |
 
 ## Driver Settings And Hardware Test Results
 
@@ -202,7 +202,7 @@ The tested TMC2209 configuration is:
 
 - **Shared UART Bus**: GPIO22 RX / GPIO23 TX (with 1 kOhm series resistor) at
   115200 baud (`config.py`).
-- **Addressing**: Skull 1 at slave address 0; Skull 2 at slave address 1.
+- **Addressing**: Tracker 1 at slave address 0; Tracker 2 at slave address 1.
 - **`GCONF = 0x000001c0`**: UART control enabled, microsteps set via register
   (`mstep_reg_select`), analog VREF current scaling disabled (`i_scale_analog = 0`).
 - **`GLOBALSCALER = 0`**: Full-scale current resolution (256/256), verified
@@ -230,10 +230,10 @@ The tested TMC2209 configuration is:
   actual current scaling (`CS_ACTUAL`) via `DRV_STATUS` in `motor_test.py`.
 - **Dual Motor Spin & RMT Offloading**: `motor_test.py` confirmed 360° forward and
   reverse rotation, 30° minimum-speed jog, and 35->6400->35 pps slewed sweeps for
-  both Skull 1 and Skull 2 steppers with zero step loss using ESP32 hardware RMT.
+  both Tracker 1 and Tracker 2 steppers with zero step loss using ESP32 hardware RMT.
 - **Radar Gaze Tracking**: Live target yaw tracking, deadband hysteresis, and
   smooth gaze following verified with live LD2450 radar input at 50 Hz.
-- **Host Unit Tests**: All 28 unit tests pass (`python -m unittest discover -s tests`).
+- **Host Unit Tests**: All 32 unit tests pass (`python -m unittest discover -s tests`).
 
 ## Tracker Behavior And Configuration
 
@@ -241,41 +241,41 @@ All prop geometry, pin allocations, motor dynamics, and operational limits are
 defined in `config.py`.
 
 - **Multi-Tracker Architecture**:
-  `main.py` creates a list of generic `Tracker` instances from the `SKULLS`
+  `main.py` creates a list of generic `Tracker` instances from the `TRACKERS`
   tuple in `config.py`. Each tracker encapsulates its own `StepperAxis`,
   NeoPixel eyes, target memory, target smoothing filter, bearing rate filter,
   and deadband state.
 - **Target Assignment Modes (`TARGET_ASSIGNMENT_MODE`)**:
-  - `"nearest_two"`: The closest radar target is assigned to Skull 1; the second
-    closest target is assigned to Skull 2. If only one person is detected, Skull
-    1 tracks them while Skull 2 returns to park with eyes off.
-  - `"fixed_slot"`: Skull 1 tracks radar tracking slot 1; Skull 2 tracks slot 2.
-    If a slot is empty, that skull parks.
+  - `"nearest_two"`: The closest radar target is assigned to Tracker 1; the second
+    closest target is assigned to Tracker 2. If only one person is detected, Tracker
+    1 tracks them while Tracker 2 returns to park with LEDs off.
+  - `"fixed_slot"`: Tracker 1 tracks radar tracking slot 1; Tracker 2 tracks slot 2.
+    If a slot is empty, that tracker parks.
 - **Gaze & Parking**:
-  - When tracking a target, the skull's eye LEDs shine bright red (`(255, 0, 0)`).
-  - If target contact is lost for longer than `TARGET_LOST_MS` (1200 ms), the skull
-    turns off its eye LEDs (`(0, 0, 0)`) and smoothly rotates back to the forward
+  - When tracking a target, the tracker's status LEDs shine bright red (`(255, 0, 0)`).
+  - If target contact is lost for longer than `TARGET_LOST_MS` (1200 ms), the tracker
+    turns off its status LEDs (`(0, 0, 0)`) and smoothly rotates back to the forward
     park position (`PARK_YAW_DEG = 0.0°`).
 - **Natural Motion Shaping**:
-  - **1/8 Microsteps**: Provides 0.225° angular resolution while allowing fast,
-    responsive head turns up to 360°/s at 1600 pps.
-  - **Micro-Hysteresis Deadband**: 2 microsteps (~0.45°) start threshold / 0.0° stop threshold.
-    The skull remains still at rest without hunting over single rounding digits, then
+  - **1/16 Microsteps**: Provides 0.1125° angular resolution while allowing fast,
+    responsive head turns up to 720°/s at 6400 pps.
+  - **Micro-Hysteresis Deadband**: 2 microsteps (~0.225°) start threshold / 0.0° stop threshold.
+    The tracker remains still at rest without hunting over single rounding digits, then
     tracks smoothly and continuously to the target without snapping off and on.
   - **Quiet Holding**: The motor driver EN is kept asserted while awake. The TMC2209
     drops silently to IHOLD (390 mA) at rest without coil-snap clunking, disabling EN
     only when entering SLEEP / parked state or shutdown.
   - **Error-Scaled Velocity**: Speed scales with $(E / E_{\text{full}})^{1.4}$,
     ensuring rapid repositioning for distant targets and smooth deceleration as
-    the skull comes on target.
+    the tracker comes on target.
   - **Bearing Rate Feed-Forward**: Anticipates walking targets based on filtered
     angular velocity, eliminating lag. Gated off when pointing error is below 3°
     to prevent sensor noise from inducing vibration.
-  - **Acceleration Slew & Reversal**: Rate slew is capped at 4800 pps/s. When
+  - **Acceleration Slew & Reversal**: Rate slew is capped at 14400 pps/s. When
     reversing direction, the motor decelerates toward minimum speed before
     changing directions.
 - **Startup Mode**:
-  `POSITION_MODE = "assume"` requires skulls to be physically positioned facing
+  `POSITION_MODE = "assume"` requires trackers to be physically positioned facing
   straight forward (0.0° yaw) before powering on. Limit switches and StallGuard
   sensorless homing are not implemented. Angle travel is software-clamped to
   `PAN_MIN_DEG` (-60.0°) and `PAN_MAX_DEG` (+60.0°).

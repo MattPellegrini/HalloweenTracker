@@ -1,12 +1,12 @@
 # Main Control Loop Architecture
 
-This document describes the real-time execution lifecycle of the dual-skull Halloween tracker implemented in `main.py`.
+This document describes the real-time execution lifecycle of the dual-tracker system implemented in `main.py`.
 
 ---
 
 ## 1. High-Level Architecture
 
-The project runs on an **ESP32-WROOM-32E** under **MicroPython**. It simultaneously tracks targets with a 24 GHz mmWave radar and independently aims two skulls using TMC2209-driven NEMA17 stepper motors.
+The project runs on an **ESP32-WROOM-32E** under **MicroPython**. It simultaneously tracks targets with a 24 GHz mmWave radar and independently aims two trackers using TMC2209-driven NEMA17 stepper motors.
 
 ```mermaid
 flowchart TD
@@ -23,10 +23,10 @@ flowchart TD
     end
 
     subgraph ACTUATORS ["Outputs & Actuators"]
-        M1["Skull 1 Pan Stepper\n(1/16 microsteps, RMT pin 25)"]
-        M2["Skull 2 Pan Stepper\n(1/16 microsteps, RMT pin 18)"]
-        LED1["Skull 1 Eye LEDs\n(NeoPixel pin 13)"]
-        LED2["Skull 2 Eye LEDs\n(NeoPixel pin 14)"]
+        M1["Tracker 1 Pan Stepper\n(1/16 microsteps, RMT pin 25)"]
+        M2["Tracker 2 Pan Stepper\n(1/16 microsteps, RMT pin 18)"]
+        LED1["Tracker 1 Eye/Status LEDs\n(NeoPixel pin 13)"]
+        LED2["Tracker 2 Eye/Status LEDs\n(NeoPixel pin 14)"]
     end
 
     RADAR --> POLL
@@ -50,15 +50,15 @@ Before entering the main loop, `main()` performs the following sequential hardwa
 
 1. **Safety & Startup Pose Assumption**:
    - Requires `POSITION_MODE = "assume"`.
-   - Assumes both skulls are manually positioned facing center (`0.0°`, `PARK_YAW_DEG`) prior to powering the board.
+   - Assumes both trackers are manually positioned facing center (`0.0°`, `PARK_YAW_DEG`) prior to powering the board.
 2. **Tracker Object Instantiation**:
-   - Creates a `Tracker` instance for each skull in `config.SKULLS`.
-   - Configures GPIO pins: STEP, DIR, active-low EN, and WS2812B NeoPixel eye data pins.
+   - Creates a `Tracker` instance for each entry in `config.TRACKERS`.
+   - Configures GPIO pins: STEP, DIR, active-low EN, and WS2812B NeoPixel eye/status data pins.
    - Instantiates `StepperAxis` with ESP32 hardware RMT channels (1 MHz clock, 10 µs pulse width, 15 ms burst slice).
-   - Initializes eye LEDs to dark (`config.EYE_OFF`).
+   - Initializes LEDs to dark (`config.EYE_OFF`).
 3. **TMC2209 Hardware Discovery & Configuration (`find_tmc_drivers`)**:
    - Opens the shared single-wire half-duplex UART bus (`UART1`, 115200 baud).
-   - Queries each driver at its configured address (`0` for Skull 1, `1` for Skull 2).
+   - Queries each driver at its configured address (`0` for Tracker 1, `1` for Tracker 2).
    - Verifies the TMC2209 silicon revision via `REG_IOIN` (`0x21`).
    - Configures each driver:
      - `GCONF`: Enables UART digital scaling, bypasses analog VREF potentiometer.
@@ -87,9 +87,6 @@ sequenceDiagram
         Radar-->>Loop: 3 Target Slots
         Loop->>Trackers: choose_two_targets & on_radar_frame()
         Loop->>Trackers: update() (State, Deadband, Speed Shaping)
-        opt Logging Enabled
-            Loop->>Loop: format_frame_log() & print
-        end
     end
 
     alt 50 Hz Timer Elapsed (dt >= 20 ms)
@@ -102,28 +99,28 @@ sequenceDiagram
 ```
 
 ### Stage A: Non-Blocking Radar Polling (~10 Hz)
+
 - The LD2450 streams 30-byte frames approximately every 100 ms.
 - `radar.poll()` reads available UART bytes, searches for the 4-byte synchronization header (`0xAA 0xFF 0x03 0x00`), confirms the 2-byte footer (`0x55 0xCC`), and unpacks three target slots.
 - When a valid frame is received:
-  1. **Delta Motion Telemetry**: Computes step count and angular displacement moved by each motor since the prior frame.
-  2. **Target Assignment (`choose_two_targets`)**:
-     - `fixed_slot`: Skull 1 tracks radar hardware slot 1, Skull 2 tracks slot 2.
-     - `nearest_two`: Valid targets within `[300 mm, 6000 mm]` are sorted by range; Skull 1 gets the closest, Skull 2 gets the next closest.
-  3. **Radar Frame Handler (`tracker.on_radar_frame`)**:
+  1. **Target Assignment (`choose_two_targets`)**:
+     - `fixed_slot`: Tracker 1 tracks radar hardware slot 1, Tracker 2 tracks slot 2.
+     - `nearest_two`: Valid targets within `[300 mm, 6000 mm]` are sorted by range; Tracker 1 gets the closest, Tracker 2 gets the next closest.
+  2. **Radar Frame Handler (`tracker.on_radar_frame`)**:
      - Updates `current_target` and refreshes `last_target_ms` (preventing target loss timeout).
      - Solves geometric line-of-sight yaw angle using `aiming.solve_angles` and clamps to `[PAN_MIN_DEG, PAN_MAX_DEG]`.
      - Computes target angular speed (bearing rate in deg/s) and applies a low-pass filter (`filtered_yaw_rate`) for feed-forward pacing.
-  4. **Immediate Update**: Runs `tracker.update()` immediately to incorporate fresh radar coordinates without waiting for the next periodic tick.
-  5. **Telemetry Logging**: If `config.ENABLE_FRAME_LOGGING` is enabled, formats and prints diagnostic lines (decimated by `config.FRAME_LOG_DECIMATION`).
+  3. **Immediate Update**: Runs `tracker.update()` immediately to incorporate fresh radar coordinates without waiting for the next periodic tick.
 
 ### Stage B: Periodic 50 Hz Motion Tick (every 20 ms)
+
 To guarantee smooth acceleration, deceleration, and responsive target loss detection between 100 ms radar frames, `tracker.update()` runs every `config.TRACKING_UPDATE_MS = 20 ms`:
 
 1. **Target Timeout Check**:
    - If time since `last_target_ms` exceeds `config.TARGET_LOST_MS` (1,200 ms), the target is declared lost.
-   - The skull turns eye LEDs dark (`config.EYE_OFF`), clears target state, and commands `config.PARK_YAW_DEG` (0°).
-2. **Target Acquisition & Eye Illumination**:
-   - When a valid target is active, the skull illuminates eye LEDs red (`config.EYE_RED`).
+   - The tracker turns indicator LEDs dark (`config.EYE_OFF`), clears target state, and commands `config.PARK_YAW_DEG` (0°).
+2. **Target Acquisition & Indicator Illumination**:
+   - When a valid target is active, the tracker illuminates indicator LEDs red (`config.EYE_RED`).
    - If waking from sleep, target smoothing is seeded directly with the initial angle to eliminate wake lag.
 3. **Exponential Angle Smoothing (`smooth_toward_target`)**:
    - Applies an exponential low-pass filter ($\tau = 150\text{ ms}$) to raw radar angles:
@@ -149,6 +146,7 @@ To guarantee smooth acceleration, deceleration, and responsive target loss detec
    - Disables driver coils (`set_enabled(False)`) only when fully parked in SLEEP state to eliminate standby heat.
 
 ### Stage C: Stepper Hardware Pulse Slicing (`tracker.run()`)
+
 - `StepperAxis.run()` checks if the previous RMT hardware burst has finished (`rmt.wait_done()`).
 - Accumulates completed steps into `completed_steps`.
 - Computes the pulse count for the next slice (bounded to `RMT_BURST_SLICE_MS = 15 ms`).
@@ -157,6 +155,7 @@ To guarantee smooth acceleration, deceleration, and responsive target loss detec
 - RMT hardware streams the pulses autonomously to the STEP pin with microsecond hardware accuracy.
 
 ### Stage D: Cooperative Sleep Yield (`time.sleep_ms(1)`)
+
 - Because the ESP32 RMT peripheral generates pulse trains autonomously in hardware, the CPU does not need to poll or busy-wait.
 - Yielding for 1 ms per loop iteration prevents CPU starvation, allows background MicroPython runtime and REPL processing, and prevents MCU heating.
 
@@ -165,6 +164,7 @@ To guarantee smooth acceleration, deceleration, and responsive target loss detec
 ## 4. Teardown & Fault Safety
 
 When interrupted (e.g. by `Ctrl+C` or unhandled error), the `finally:` block executes:
+
 1. Calls `tracker.shutdown()` on all trackers:
    - Immediately stops RMT pulse trains.
    - De-initializes the ESP32 RMT channels.

@@ -5,8 +5,8 @@ Physical & Electrical Architecture:
   - Wiring: ESP32 RX connects directly to the shared PDN_UART bus line. ESP32 TX
     connects to the same line through a 1 kOhm series resistor.
   - Slave Addressing: Up to 4 drivers on one bus, selected by strapping pins MS1 & MS2:
-      Address 0: MS1=GND, MS2=GND  (Skull 1)
-      Address 1: MS1=VIO, MS2=GND  (Skull 2)
+      Address 0: MS1=GND, MS2=GND  (Tracker 1)
+      Address 1: MS1=VIO, MS2=GND  (Tracker 2)
       Address 2: MS1=GND, MS2=VIO
       Address 3: MS1=VIO, MS2=VIO
   - Echo Handling: Because TX and RX are wired to the same bus line, every byte

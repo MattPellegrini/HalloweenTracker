@@ -98,6 +98,9 @@ class Tracker:
             config.ENABLE_ACTIVE_LOW,
             config.STARTUP_PAN_DEG,
             skull["direction_inverted"],
+            rmt_resolution_hz=getattr(config, "RMT_RESOLUTION_HZ", 1000000),
+            pulse_width_us=getattr(config, "RMT_PULSE_WIDTH_US", 10),
+            burst_slice_ms=getattr(config, "RMT_BURST_SLICE_MS", 15),
         )
         self.moving = False
         self.awake = False
@@ -265,7 +268,7 @@ class Tracker:
 
     def format_frame_log(self, prefix, delta_steps, delta_deg):
         """Format a single-line status log for this frame."""
-        if self.last_assigned_target is not None:
+        if self.last_assigned_target is not None and self.last_raw_yaw is not None:
             x_mm, y_mm, speed_cm_s, _ = self.last_assigned_target
             tgt_str = "tgt=({:4d},{:4d},{:3d})".format(
                 x_mm, y_mm, speed_cm_s)
@@ -305,8 +308,7 @@ class Tracker:
         self.axis.run()
 
     def shutdown(self):
-        self.step_pin.value(0)
-        self.axis.set_enabled(False)
+        self.axis.deinit()
         set_eyes(self.eyes, config.EYE_OFF)
 
 
@@ -411,11 +413,12 @@ def main():
             any_motion = any(
                 tracker.moving
                 or tracker.axis.position_steps != tracker.axis.target_steps
-                or tracker.axis.step_high
+                or tracker.axis.is_busy()
                 for tracker in trackers
             )
-            if not any_motion:
-                time.sleep_ms(1)
+            # Cooperative yield: RMT hardware generates pulses autonomously,
+            # so sleep 1 ms to prevent CPU starvation and cool the ESP32.
+            time.sleep_ms(1)
     finally:
         for tracker in trackers:
             tracker.shutdown()

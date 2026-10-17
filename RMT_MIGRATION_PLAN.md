@@ -1,9 +1,11 @@
 # RMT Motor Control & 1/16 Microstepping Migration Plan
 
 ## Executive Summary
+
 This document specifies the migration of the two Halloween skull pan stepper axes from CPU-bound GPIO bit-banging to the ESP32 hardware RMT (Remote Control) peripheral, paired with an upgrade of the BTT TMC2209 V1.3 stepper drivers from 1/8 to 1/16 microstepping.
 
 Key architectural benefits:
+
 - **Zero CPU pulse generation overhead**: Step pulse trains are synthesized entirely by the ESP32 RMT peripheral without busy-waiting or microsecond polling loops.
 - **Higher top speed**: Maximum step rate increased to 6400 pps ($720^\circ/\text{s}$ at 1/16 microstepping, 2 rev/s), compared to the prior bit-banged 1600 pps ceiling.
 - **Whisper-quiet motion & resonance elimination**: 1/16 microstepping yields 3,200 steps/rev ($0.1125^\circ$/pulse) with smooth sinusoidal coil transitions.
@@ -15,12 +17,14 @@ Key architectural benefits:
 ## 1. Hardware & Driver Architecture
 
 ### TMC2209 Digital Configuration
+
 - **Microstepping**: 1/16 microstepping configured via `CHOPCONF.MRES = 4`.
 - **Full Steps / Rev**: 200 full steps $\times$ 16 microsteps = 3,200 microsteps per $360^\circ$ revolution.
 - **Steps per Degree**: $3200 / 360 \approx 8.8889$ steps/degree ($0.1125^\circ$/step).
 - **Current Settings**: 770 mA RMS run current, 390 mA RMS hold current (digital current scale via UART).
 
 ### ESP32 RMT Peripheral Allocation
+
 - ESP32 contains 8 hardware RMT channels (channels 0–7).
 - MicroPython `esp32.RMT` dynamically allocates available channels.
 - **Clock Resolution**: $1\,\text{MHz}$ (`resolution_hz = 1_000_000`), yielding $1\,\mu\text{s}$ tick resolution.
@@ -34,10 +38,13 @@ Key architectural benefits:
 ## 2. Bounded Burst Step Generation & Position Accounting
 
 ### The Problem with Infinite Loops
+
 Continuous hardware pulsing loops (`RMT.loop(True)`) cannot report intermediate step counts to Python without hardware interrupts, making runtime stopping and exact position tracking vulnerable to non-deterministic overshoots and step loss.
 
 ### Bounded Slice Architecture
+
 `StepperAxis.run()` operates as a non-blocking discrete slice transmitter:
+
 1. `StepperAxis.run()` checks `rmt.wait_done()`.
 2. When the previous burst finishes:
    - The completed burst count is committed to `completed_steps`.
@@ -56,16 +63,16 @@ Continuous hardware pulsing loops (`RMT.loop(True)`) cannot report intermediate 
 
 ## 3. Motion & Tracking Parameter Tuning
 
-| Parameter | 1/8 Microstepping (Old) | 1/16 Microstepping + RMT (New) | Notes |
-| :--- | :--- | :--- | :--- |
-| `MICROSTEPS` | 8 | 16 | 3200 steps/rev ($0.1125^\circ$/pulse) |
-| `MAX_STEP_RATE` | 1600 pps ($360^\circ/\text{s}$) | 6400 pps ($720^\circ/\text{s}$) | $2.0\,\text{rev}/\text{s}$ top speed |
-| `MIN_TRACKING_STEP_RATE` | 15 pps ($\sim 3.375^\circ/\text{s}$) | 30 pps ($\sim 3.375^\circ/\text{s}$) | Prevents crawl and low-frequency resonance |
-| `TRACKING_BASE_STEP_RATE` | 400 pps ($90^\circ/\text{s}$) | 800 pps ($90^\circ/\text{s}$) | Used when speed shaping is disabled |
-| `TRACKING_STEP_RATE_SLEW_PPS_S` | 4800 pps/s | 14,400 pps/s | $\sim 1620^\circ/\text{s}^2$ angular acceleration |
-| `TRACKING_DEADBAND_START_DEG` | $0.45^\circ$ (2 microsteps) | $0.225^\circ$ (2 microsteps) | Tighter standstill precision at 1/16 |
-| `TRACKING_DEADBAND_STOP_DEG` | $0.0^\circ$ | $0.0^\circ$ | Moves continuously until reaching target |
-| `TRACKING_UPDATE_MS` | 33 ms (~30 Hz) | 20 ms (50 Hz) | Faster tracking cadence without CPU choke |
+| Parameter                       | 1/8 Microstepping (Old)              | 1/16 Microstepping + RMT (New)       | Notes                                             |
+| :------------------------------ | :----------------------------------- | :----------------------------------- | :------------------------------------------------ |
+| `MICROSTEPS`                    | 8                                    | 16                                   | 3200 steps/rev ($0.1125^\circ$/pulse)             |
+| `MAX_STEP_RATE`                 | 1600 pps ($360^\circ/\text{s}$)      | 6400 pps ($720^\circ/\text{s}$)      | $2.0\,\text{rev}/\text{s}$ top speed              |
+| `MIN_TRACKING_STEP_RATE`        | 15 pps ($\sim 3.375^\circ/\text{s}$) | 30 pps ($\sim 3.375^\circ/\text{s}$) | Prevents crawl and low-frequency resonance        |
+| `TRACKING_BASE_STEP_RATE`       | 400 pps ($90^\circ/\text{s}$)        | 800 pps ($90^\circ/\text{s}$)        | Used when speed shaping is disabled               |
+| `TRACKING_STEP_RATE_SLEW_PPS_S` | 4800 pps/s                           | 14,400 pps/s                         | $\sim 1620^\circ/\text{s}^2$ angular acceleration |
+| `TRACKING_DEADBAND_START_DEG`   | $0.45^\circ$ (2 microsteps)          | $0.225^\circ$ (2 microsteps)         | Tighter standstill precision at 1/16              |
+| `TRACKING_DEADBAND_STOP_DEG`    | $0.0^\circ$                          | $0.0^\circ$                          | Moves continuously until reaching target          |
+| `TRACKING_UPDATE_MS`            | 33 ms (~30 Hz)                       | 20 ms (50 Hz)                        | Faster tracking cadence without CPU choke         |
 
 ---
 

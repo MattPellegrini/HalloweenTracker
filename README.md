@@ -21,19 +21,20 @@ and NEMA17 motor originally allocated for tilt.
   single-wire UART bus (Skull 1 at address 0, Skull 2 at address 1). Digital
   UART configuration reliably verifies `GCONF` (UART mode), accepts `GLOBALSCALER`
   and `IHOLD_IRUN` writes via `IFCNT` confirmation, and configures `CHOPCONF`
-  for 1/8 microstepping.
-- **Motors & Motion**: StepperOnline 17HE19-2004S motors run at 1/8 microstepping
-  (1,600 steps/rev, 0.225°/step) with a conservative 770 mA RMS run / 390 mA RMS
-  hold current. Step rates range from 50 to 1600 pps (~11.25°/s to 360°/s).
-  Both motors have been bench-tested with unloaded 360° spin tests.
+  for 1/16 microstepping.
+- **Motors & Motion**: StepperOnline 17HE19-2004S motors run at 1/16 microstepping
+  (3,200 steps/rev, 0.1125°/step) with a conservative 770 mA RMS run / 390 mA RMS
+  hold current. Step pulses are generated autonomously by the ESP32 hardware RMT
+  peripheral, reaching speeds up to 6400 pps (720°/s or 2.0 rev/s) with zero CPU
+  bit-banging overhead. Both motors have been bench-tested with unloaded 360° spin tests.
 - **Motion Shaping**:
   - Speed is driven exponentially by pointing error ($E^{1.4}$), moving swiftly
     when far and easing gently as the target is centered.
   - Target-bearing rate feed-forward anticipates moving targets, gated off below
     3° of error to prevent radar noise from causing ticking.
   - A 250 ms low-pass target smoother filters raw radar coordinate fluctuations.
-  - Slew rate limiting (4800 pps/s) and brake-before-reverse prevent skipped steps.
-  - A 2-microstep (~0.45°) micro-hysteresis deadband prevents hunting over single
+  - Slew rate limiting (14,400 pps/s) and brake-before-reverse prevent skipped steps.
+  - A 2-microstep (~0.225°) micro-hysteresis deadband prevents hunting over single
     rounding digits at rest, while tracking smoothly and continuously when moving.
   - EN remains enabled while awake; the TMC2209 drops silently to IHOLD (390 mA)
     at rest with zero coil-snap clunking. EN is only disabled in SLEEP/parked state.
@@ -42,7 +43,7 @@ and NEMA17 motor originally allocated for tilt.
     closest target. Either skull idles/parks when fewer targets are present.
   - `fixed_slot`: Skull 1 follows radar slot 1; Skull 2 follows radar slot 2.
     An empty slot returns that skull to its forward park pose.
-- **Unit Tests**: 21 host tests in `tests/test_protocol_and_aiming.py` pass.
+- **Unit Tests**: 28 host tests in `tests/test_protocol_and_aiming.py` pass.
 - **Physical Commissioning**: Unloaded bare-motor movements and UART diagnostics
   are verified. Full skull prop linkage assembly and the second eye pair remain
   to be commissioned.
@@ -190,8 +191,8 @@ while 12 V VM is energized.
 | `tmc2209.py`                        | TMC2209 UART driver: CRC calculation, packet framing, register read/write, IFCNT write verification, current scaling, and microstepping helpers.                                                                                                                        | Imported by motor setup and controller scripts.                                                                                                                                                                       |
 | `aiming.py`                         | Geometry calculations: solves pan yaw angle from target (X, Y) coordinates relative to prop pivot and applies travel limits.                                                                                                                                            | Imported by `main.py`; unit tested.                                                                                                                                                                                   |
 | `tracking.py`                       | Target selection logic (`choose_two_targets`), start/stop deadband hysteresis, exponential error-shaped velocity, bearing rate feed-forward, target smoothing, and slew rate limiting.                                                                                  | Imported by `main.py`; unit tested.                                                                                                                                                                                   |
-| `stepper.py`                        | Non-blocking STEP/DIR stepper axis controller with angle tracking and soft limits.                                                                                                                                                                                      | Imported by `main.py`.                                                                                                                                                                                                |
-| `tests/test_protocol_and_aiming.py` | Host unit test suite (21 tests) covering LD2450 parsing, 3-slot decoding, target assignment, aiming geometry, motion shaping, and TMC2209 UART communications.                                                                                                          | Run on host: `./venv/bin/python -m unittest discover -s tests`.                                                                                                                                                       |
+| `stepper.py`                        | Non-blocking STEP/DIR stepper axis controller with hardware ESP32 RMT pulse generation, angle tracking, and soft limits.                                                                                                                                                | Imported by `main.py`.                                                                                                                                                                                                |
+| `tests/test_protocol_and_aiming.py` | Host unit test suite (28 tests) covering LD2450 parsing, 3-slot decoding, target assignment, aiming geometry, motion shaping, RMT pulse generation, and TMC2209 UART.                                                                                                   | Run on host: `./venv/bin/python -m unittest discover -s tests`.                                                                                                                                                       |
 
 ## Driver Settings And Hardware Test Results
 
@@ -208,8 +209,8 @@ The tested TMC2209 configuration is:
   (~390 mA RMS) with the 0.11-ohm sense resistor. This is a quiet, conservative
   operating current that keeps the 2 A/phase NEMA17 motors cool while providing
   ample torque.
-- **`CHOPCONF = 0x14010053`**: MRES set for 1/8 microstepping (1,600 pulses per
-  revolution for 1.8° steppers, or 0.225° per step).
+- **`CHOPCONF = 0x14010053`**: MRES set for 1/16 microstepping (3,200 pulses per
+  revolution for 1.8° steppers, or 0.1125° per step).
 - **Volatile Registers**: TMC2209 registers reset to power-on defaults whenever
   driver power (`VM`/`VIO`) is interrupted. Both `main.py` and `motor_driver_setup.py`
   automatically configure and verify driver registers on startup.
@@ -225,11 +226,12 @@ The tested TMC2209 configuration is:
   via `IOIN` register readback with drivers disabled (`motor_test.py`).
 - **Driver Enable**: Verified active-low enable toggling, standstill flag, and
   actual current scaling (`CS_ACTUAL`) via `DRV_STATUS` in `motor_test.py`.
-- **Dual Motor Spin**: `motor_test.py` confirmed 360° forward and reverse rotation
-  for both Skull 1 and Skull 2 steppers with zero step loss.
+- **Dual Motor Spin & RMT Offloading**: `motor_test.py` confirmed 360° forward and
+  reverse rotation, 30° minimum-speed jog, and 35->6400->35 pps slewed sweeps for
+  both Skull 1 and Skull 2 steppers with zero step loss using ESP32 hardware RMT.
 - **Radar Gaze Tracking**: Live target yaw tracking, deadband hysteresis, and
-  smooth gaze following verified with live LD2450 radar input.
-- **Host Unit Tests**: All 21 unit tests pass (`python -m unittest discover -s tests`).
+  smooth gaze following verified with live LD2450 radar input at 50 Hz.
+- **Host Unit Tests**: All 28 unit tests pass (`python -m unittest discover -s tests`).
 
 ## Tracker Behavior And Configuration
 

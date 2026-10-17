@@ -39,6 +39,32 @@ class FakePin:
         self.level = level
 
 
+class FakeRMT:
+    def __init__(self):
+        self.dispatched_pulses = []
+        self._wait_done_val = True
+        self._active_val = False
+        self.deinited = False
+
+    def write_pulses(self, pulses, data=1):
+        self.dispatched_pulses.append((pulses, data))
+        self._wait_done_val = False
+        self._active_val = True
+
+    def wait_done(self, timeout=0):
+        return self._wait_done_val
+
+    def active(self, val=None):
+        if val is None:
+            return self._active_val
+        if not val:
+            self._active_val = False
+            self._wait_done_val = True
+
+    def deinit(self):
+        self.deinited = True
+
+
 class LD2450Tests(unittest.TestCase):
     def make_frame(self):
         frame = bytearray(FRAME_HEADER)
@@ -273,6 +299,121 @@ class StepperTests(unittest.TestCase):
 
         self.assertEqual(direction_pin.value(), 0)
         self.assertEqual(axis.position_steps, 1)
+
+    def test_rmt_burst_generation_and_slice_dispatch(self):
+        step_pin = FakePin()
+        direction_pin = FakePin()
+        enable_pin = FakePin()
+        fake_rmt = FakeRMT()
+
+        with patch("stepper.time.ticks_us", return_value=1000, create=True), patch(
+            "stepper.time.ticks_diff", side_effect=lambda now, then: now - then, create=True
+        ):
+            # 3200 steps/rev (1/16 microstepping), max 6400 pps, slice 15 ms
+            axis = StepperAxis(
+                step_pin, direction_pin, enable_pin, 3200,
+                -60, 60, 6400, enable_active_low=True,
+                initial_degrees=0.0, rmt=fake_rmt, burst_slice_ms=15
+            )
+            # Target 10 degrees -> 10 * (3200/360) = 89 steps
+            axis.set_target_degrees(10.0)
+            self.assertEqual(axis.target_steps, 89)
+
+            # run() dispatches first slice: at 6400 pps, 15ms slice = (6400 * 15)//1000 = 96 steps
+            # Since 89 < 96, entire 89 steps fit into one slice
+            axis.run()
+            self.assertEqual(len(fake_rmt.dispatched_pulses), 1)
+            pulses, data = fake_rmt.dispatched_pulses[0]
+            self.assertEqual(data, 1)
+            self.assertEqual(len(pulses), 89 * 2)
+            # High pulse is 10us
+            self.assertEqual(pulses[0], 10)
+            self.assertTrue(axis.is_busy())
+
+            # Mark pulse train done in RMT
+            fake_rmt._wait_done_val = True
+            self.assertFalse(axis.is_busy())
+            self.assertEqual(axis.position_steps, 89)
+
+    def test_rmt_burst_handles_float_step_rate_and_targets(self):
+        step_pin = FakePin()
+        direction_pin = FakePin()
+        enable_pin = FakePin()
+        fake_rmt = FakeRMT()
+
+        with patch("stepper.time.ticks_us", return_value=1000, create=True), patch(
+            "stepper.time.ticks_diff", side_effect=lambda now, then: now - then, create=True
+        ):
+            axis = StepperAxis(
+                step_pin, direction_pin, enable_pin, 3200,
+                -60, 60, 6400, enable_active_low=True,
+                initial_degrees=0.0, rmt=fake_rmt, burst_slice_ms=15
+            )
+            # Pass float step rate (e.g. from slew calculation)
+            axis.set_step_rate(35.5)
+            axis.set_target_degrees(5.3)
+            # Must not raise TypeError: unsupported types for __mul__: 'tuple', 'float'
+            axis.run()
+            self.assertTrue(axis.is_busy())
+            pulses, data = fake_rmt.dispatched_pulses[0]
+            self.assertIsInstance(len(pulses), int)
+
+    def test_rmt_position_tracking_during_flight(self):
+        step_pin = FakePin()
+        direction_pin = FakePin()
+        enable_pin = FakePin()
+        fake_rmt = FakeRMT()
+
+        # Step rate = 1000 pps -> step period = 1000 us
+        with patch("stepper.time.ticks_us", side_effect=[1000, 1000, 3500, 15000], create=True), patch(
+            "stepper.time.ticks_diff", side_effect=lambda now, then: now - then, create=True
+        ):
+            axis = StepperAxis(
+                step_pin, direction_pin, enable_pin, 3200,
+                -60, 60, 1000, enable_active_low=True,
+                initial_degrees=0.0, rmt=fake_rmt, burst_slice_ms=15
+            )
+            axis.set_step_rate(1000)
+            axis.set_target_degrees(1.0)  # ~9 steps
+
+            # Dispatch burst at t=1000
+            axis.run()
+            self.assertTrue(axis.is_busy())
+
+            # At t=3500 (elapsed = 2500 us, period = 1000 us -> 2 steps completed in flight)
+            self.assertEqual(axis.position_steps, 2)
+
+            # RMT finishes
+            fake_rmt._wait_done_val = True
+            axis.run()
+            self.assertFalse(axis.is_busy())
+            self.assertEqual(axis.position_steps, axis.target_steps)
+
+    def test_rmt_stop_and_deinit(self):
+        step_pin = FakePin()
+        direction_pin = FakePin()
+        enable_pin = FakePin()
+        fake_rmt = FakeRMT()
+
+        with patch("stepper.time.ticks_us", return_value=1000, create=True), patch(
+            "stepper.time.ticks_diff", side_effect=lambda now, then: now - then, create=True
+        ):
+            axis = StepperAxis(
+                step_pin, direction_pin, enable_pin, 3200,
+                -60, 60, 6400, enable_active_low=True,
+                initial_degrees=0.0, rmt=fake_rmt
+            )
+            axis.set_enabled(True)
+            axis.set_target_degrees(5.0)
+            axis.run()
+            self.assertTrue(axis.is_busy())
+
+            axis.stop()
+            self.assertFalse(axis.is_busy())
+
+            axis.deinit()
+            self.assertTrue(fake_rmt.deinited)
+            self.assertFalse(axis.enabled)
 
 
 class TMC2209Tests(unittest.TestCase):

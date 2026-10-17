@@ -58,25 +58,26 @@ No STEP pulses were sent.
 
 Pan STEP/DIR signal test with EN disabled observed IOIN STEP and DIR bits toggle with ESP32 GPIO25/26. The first pan jog (160 pulses each way at 400 pps) was too subtle to observe by eye. The revised jog (320 pulses each direction, 10 ms pulse period, about 100 pulses/s) ran successfully; user observed the tape flag move. No load/prop was attached.
 
-Host suite currently passes 21 tests. `./venv/bin/python -m py_compile *.py` and `git diff --check` passed. Tilt signal and bare-motor jog at shared-UART address 1 passed on hardware (that driver now runs skull 2's pan motor). Dual-axis `main.py` bench runs found both drivers, acquired targets, and moved both bare motors plausibly. The design is now two pan-only skulls; the two-skull revision has not yet been deployed or run on hardware.
+Host suite currently passes 29 tests. `./venv/bin/python -m py_compile *.py` and `git diff --check` passed. Dual-skull motor testing (`motor_test.py`) with 1/16 microstepping (3200 steps/rev) and hardware RMT pulse generation verified 360° forward/reverse rotations, 30° slow jogs (35 pps), and 35->6400->35 pps slewed sweeps on both Skull 1 (pin 25) and Skull 2 (pin 18) with zero step loss. `main.py` verified live tracking radar targets with hardware RMT pulse slicing and 50 Hz cooperative scheduling.
 
 ## Code Map
 
-- `config.py`: per-skull hardware map (`SKULLS`: skull 1 STEP25/DIR26/EN27/eyes13/TMC0, skull 2 STEP18/DIR19/EN21/eyes14/TMC1), currents, steps, axis limits, geometry, startup pose, tracking settings, and `TARGET_ASSIGNMENT_MODE` (`nearest_two` or `fixed_slot`). Driver current/microsteps are configured by main at startup.
-- `main.py`: two pan-only skull trackers. Requires `POSITION_MODE="assume"`, assumes the configured startup angle for each skull, finds both TMC2209s at their distinct addresses, applies/verifies UART mode/current/1/8 microsteps on both before radar startup, assigns each skull a radar target per the configured mode, and disables both drivers/eyes in cleanup. Host tests pass; not yet run on hardware in two-skull form.
+- `config.py`: per-skull hardware map (`SKULLS`: skull 1 STEP25/DIR26/EN27/eyes13/TMC0, skull 2 STEP18/DIR19/EN21/eyes14/TMC1), currents, steps (1/16 microstepping, 3,200 steps/rev), 6400 pps max rate, 50 Hz tracking rate (20 ms), axis limits, geometry, startup pose, tracking settings, and `TARGET_ASSIGNMENT_MODE` (`nearest_two` or `fixed_slot`).
+- `main.py`: two pan-only skull trackers. Requires `POSITION_MODE="assume"`, assumes the configured startup angle for each skull, finds both TMC2209s at their distinct addresses, applies/verifies UART mode/current/1/16 microsteps on both before radar startup, assigns each skull a radar target per the configured mode, and runs a 50 Hz tracking loop with cooperative sleep yielding.
 - `ld2450.py`: streaming LD2450 parser. `decode_frame_slots` preserves the three radar slots (None for empty) so fixed-slot assignment works; `decode_frame` keeps the compact list for compatibility. Sign-magnitude convention: top bit 1 means positive.
 - `radar_test.py`: radar-only monitor, one status line/second, no motor pins.
 - `tmc2209.py`: UART CRC, packets, register reads/writes, IFCNT write confirmation, GCONF and microstep/current helpers.
-- `motor_driver_setup.py`: configures TMC2209 drivers via shared UART for each skull in `SKULLS` (GCONF, GLOBALSCALER, IHOLD_IRUN, CHOPCONF). Does not pulse STEP.
-- `motor_test.py`: comprehensive test for each skull in `SKULLS`: verifies STEP/DIR signal lines via `IOIN` while disabled, verifies enable/status transition via `DRV_STATUS`, and spins each motor 360° forward and back. Subsumes `pan_signal_test.py` and `pan_enable_test.py` (and supports `--check-only` for non-moving tests).
+- `motor_driver_setup.py`: configures TMC2209 drivers via shared UART for each skull in `SKULLS` (GCONF, GLOBALSCALER, IHOLD_IRUN, CHOPCONF for 1/16 microstepping). Does not pulse STEP.
+- `motor_test.py`: comprehensive test for each skull in `SKULLS`: verifies STEP/DIR signal lines via `IOIN` while disabled, verifies enable/status transition via `DRV_STATUS`, and spins each motor 360° forward/back, 30° jog, and slewed 35->6400->35 pps sweep via hardware RMT. Subsumes legacy test scripts and supports `--check-only`.
 - `pan_enable_test.py`: legacy single-axis enable test (superseded by `motor_test.py`).
 - `pan_signal_test.py`: legacy single-axis signal test (superseded by `motor_test.py`).
-- `tilt_motor_test.py`: finds/configures the tilt driver at address 1 on the shared UART and jogs it +/-20 degrees at 100 pulses/s. Verified on bare motor: GCONF/current/CHOPCONF accepted, shaft moved upward about 20° and returned, then disabled.
-- `pan_tracking_test.py`: pan-only radar tracking. It shares the main controller's 2.5/1.5-degree start/stop hysteresis, 250 ms target smoothing, error-shaped 50-1600 pps speed at 1/8, gated bearing-rate feed-forward, and 4800 pps/s rate slew limiting.
+- `tilt_motor_test.py`: finds/configures the tilt driver at address 1 on the shared UART and jogs it +/-20 degrees.
+- `pan_tracking_test.py`: pan-only radar tracking.
 - `aiming.py`: pure radar-to-yaw/pitch geometry and clamp.
 - `tracking.py`: target validity filtering, nearest-two/fixed-slot assignment, error-shaped tracking speed, gated bearing-rate feed-forward, deadband hysteresis, target smoothing, and STEP-rate slew limiting.
-- `stepper.py`: non-blocking STEP/DIR axis logic; not tested with assembled mechanics.
-- `tests/test_protocol_and_aiming.py`: host-side parser, slot decoding, geometry, target assignment (nearest-two and fixed-slot), UART CRC/packet/current tests, and motion-shaping tests.
+- `stepper.py`: non-blocking STEP/DIR axis logic utilizing ESP32 hardware RMT with bounded burst slices (15 ms), continuous real-time monotonic position tracking, and fallback bit-banging for host test environments.
+- `tests/test_protocol_and_aiming.py`: host-side parser, slot decoding, geometry, target assignment (nearest-two and fixed-slot), UART CRC/packet/current tests, motion-shaping tests, and RMT pulse generation / position tracking tests (28 tests total).
+- `RMT_MIGRATION_PLAN.md`: complete design and migration specification for RMT pulse generation, 1/16 microstepping, and 50 Hz control loop.
 - `wiring.md`: wiring pin map, power diagram, breadboard warning, and driver details.
 - `manuals/006000_HLK-LD2450-Instruction-Manual.pdf`: LD2450 manual.
 - `manuals/BIGTREETECH TMC2209 V1.3 User Manual.pdf`: BTT V1.3 manual.

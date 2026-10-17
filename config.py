@@ -57,34 +57,34 @@ TMC_VSENSE_VOLTS = 0.325        # Internal current sense reference voltage (stan
 # A typical NEMA17 is 200 full steps/revolution. MICROSTEPS is configured on
 # the TMC by startup code and used here for angle-to-pulse conversion.
 FULL_STEPS_PER_REVOLUTION = 200
-# 1/8 doubles shaft speed versus 1/16 for the same pulse rate (0.225 deg/pulse).
-MICROSTEPS = 8
-# ESP32 bit-banged STEP loop, not the motor, is the practical speed ceiling;
-# 1600 pps (~360 deg/s at 1/8) leaves headroom for reliable pulse timing.
-MAX_STEP_RATE = 1600
-MIN_TRACKING_STEP_RATE = 15     # Floor step rate while moving (avoids crawl/resonance)
+# 1/16 microstepping yields 3,200 pulses/rev (0.1125 deg/pulse) for whisper-quiet
+# motion with resonance-free coil micro-stepping.
+MICROSTEPS = 16
+# Hardware RMT generates step pulses with zero CPU bit-banging overhead.
+# 6400 pps (~720 deg/s or 2.0 rev/s at 1/16) provides rapid tracking response.
+MAX_STEP_RATE = 6400
+MIN_TRACKING_STEP_RATE = 35     # Floor step rate while moving (avoids crawl/resonance)
 
-# Micro-hysteresis deadband: 2 microsteps (~0.45 deg at 1/8 microstepping).
+# Micro-hysteresis deadband: 2 microsteps (~0.225 deg at 1/16 microstepping).
 # Instead of the old 2.5 deg ratchet, a small 2-microstep deadband prevents
 # hunting over a single rounding digit when standing still.
 # Once moving beyond 2 microsteps, tracking is smooth and continuous to target.
-TRACKING_DEADBAND_START_DEG = 0.45
+TRACKING_DEADBAND_START_DEG = 0.225
 TRACKING_DEADBAND_STOP_DEG = 0.0
 
 # Speed shaping and feed-forward parameters:
 TRACKING_FULL_SPEED_ERROR_DEG = 12.0     # Pointing error (deg) at which speed reaches MAX_STEP_RATE
 TRACKING_ERROR_SPEED_EXPONENT = 1.4       # Exponent for error-to-speed curve (>1 = gentle near target)
-TRACKING_FEEDFORWARD_GAIN = 0.65          # Target velocity feed-forward gain to pace moving targets
-TRACKING_STEP_RATE_SLEW_PPS_S = 4800      # Max acceleration/deceleration rate (pulses/s^2)
+TRACKING_FEEDFORWARD_GAIN = 0.85          # Target velocity feed-forward gain to pace moving targets
+TRACKING_STEP_RATE_SLEW_PPS_S = 14400     # Max acceleration/deceleration rate (pulses/s^2)
 TRACKING_RATE_FILTER_ALPHA = 0.35         # Low-pass filter weight for target angular rate estimation
-TRACKING_TARGET_SMOOTHING_MS = 350        # Time constant (ms) for exponential target angle smoothing
-MAX_TRACKING_BEARING_RATE_DEG_S = 45.0    # Clamp on target angular speed to reject sensor noise jumps
+TRACKING_TARGET_SMOOTHING_MS = 150        # Time constant (ms) for exponential target angle smoothing (old 350)
+MAX_TRACKING_BEARING_RATE_DEG_S = 90.0    # Clamp on target angular speed to reject sensor noise jumps
 
-# TODO test out these for snappier motion tuning (all or some subset at a time)
-# TRACKING_TARGET_SMOOTHING_MS = 150        # Cuts lag by more than half (~150 ms vs 350 ms)
-# MAX_TRACKING_BEARING_RATE_DEG_S = 90.0    # Allows tracking fast swings up close
-# TRACKING_FEEDFORWARD_GAIN = 0.85          # Closer to 1:1 speed matching
-# TRACKING_STEP_RATE_SLEW_PPS_S = 7200      # Quicker motor spin-up (~0.22s to max speed
+# TODO testing out these for snappier motion tuning (all or some subset at a time)
+# TRACKING_TARGET_SMOOTHING_MS = 150  (350)      # Cuts lag by more than half (~150 ms vs 350 ms)
+# MAX_TRACKING_BEARING_RATE_DEG_S = 90.0 (45)   # Allows tracking fast swings up close
+# TRACKING_FEEDFORWARD_GAIN = 0.85 (0.65)          # Closer to 1:1 speed matching
 
 # Pan angles are relative to each skull's forward-facing pose. With the current
 # radar mounting, +X is toward the sensor's left. Positive yaw points to +X.
@@ -101,8 +101,8 @@ ENABLE_SPEED_SHAPING = True      # Error-proportional speed curve & feedforward
 ENABLE_RATE_SLEW = True          # Slew rate limiter on acceleration/deceleration
 
 # Constant tracking speed used when ENABLE_SPEED_SHAPING is False
-# (400 pps at 1/8 microstepping is 90 deg/s; smooth and quiet)
-TRACKING_BASE_STEP_RATE = 400
+# (800 pps at 1/16 microstepping is 90 deg/s; smooth and quiet)
+TRACKING_BASE_STEP_RATE = 800
 
 # Pan pivot position relative to the radar, in millimetres, X lateral and
 # Y forward. Zero placeholders until measured for the physical prop layout.
@@ -113,7 +113,12 @@ PAN_PIVOT_FROM_SENSOR_Y_MM = 0.0  # Forward offset of pan pivot from radar (+Y =
 MIN_TARGET_RANGE_MM = 300       # Minimum distance (mm) from radar to consider target valid
 MAX_TARGET_RANGE_MM = 6000      # Maximum detection range (mm) for prop interaction
 TARGET_LOST_MS = 1200           # Duration (ms) without detection before returning to park
-TRACKING_UPDATE_MS = 33         # Interval (ms) between tracking angle/speed updates (30 Hz)
+TRACKING_UPDATE_MS = 20         # Interval (ms) between tracking angle/speed updates (50 Hz)
+
+# ESP32 Hardware RMT stepper pulse parameters:
+RMT_RESOLUTION_HZ = 1000000     # 1 MHz clock (1 microsecond resolution)
+RMT_PULSE_WIDTH_US = 10         # STEP high pulse duration (microseconds)
+RMT_BURST_SLICE_MS = 15         # Non-blocking slice duration (ms) per RMT pulse burst
 
 # How skulls pick targets from the radar frame:
 #   "nearest_two" - skull 1 follows the nearest valid target, skull 2 the
@@ -131,7 +136,7 @@ STARTUP_PAN_DEG = PARK_YAW_DEG  # Initial pan angle assumed at MCU power-up
 # Set to True while tuning motion parameters to view frame-by-frame tracker
 # status over serial. Set to False for production / smooth motion without
 # serial UART blocking delays.
-ENABLE_FRAME_LOGGING = False
+ENABLE_FRAME_LOGGING = True
 # Log every Nth radar frame when logging is enabled (1 = every frame ~10 Hz,
 # 2 = every other frame ~5 Hz, reducing serial transmission overhead by half).
-FRAME_LOG_DECIMATION = 1
+FRAME_LOG_DECIMATION = 5

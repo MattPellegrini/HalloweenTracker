@@ -71,8 +71,8 @@ def slew_step_rate(current_rate, desired_rate, elapsed_ms,
     if abs(difference) <= maximum_delta:
         return desired_rate
     if difference > 0:
-        return current_rate + maximum_delta
-    return current_rate - maximum_delta
+        return round(current_rate + maximum_delta)
+    return round(current_rate - maximum_delta)
 
 
 def smooth_toward_target(current, target, elapsed_ms, smoothing_ms):

@@ -119,6 +119,8 @@ class Tracker:
         # (+X = sensor left, +Y = forward into detection zone)
         self.pan_pivot_x_mm = tracker_cfg.get("pan_pivot_x_mm", 0.0)
         self.pan_pivot_y_mm = tracker_cfg.get("pan_pivot_y_mm", 0.0)
+        self.min_pan_deg = tracker_cfg.get("pan_min_deg", tracker_cfg.get("min_pan_deg", config.MIN_YAW_DEG))
+        self.max_pan_deg = tracker_cfg.get("pan_max_deg", tracker_cfg.get("max_pan_deg", config.MAX_YAW_DEG))
 
         # Motion axis with ESP32 hardware RMT pulse generation:
         steps_per_revolution = (config.FULL_STEPS_PER_REVOLUTION *
@@ -128,8 +130,8 @@ class Tracker:
             self.direction_pin,
             self.enable_pin,
             steps_per_revolution,
-            config.PAN_MIN_DEG,
-            config.PAN_MAX_DEG,
+            self.min_pan_deg,
+            self.max_pan_deg,
             config.MAX_STEP_RATE,
             config.ENABLE_ACTIVE_LOW,
             config.STARTUP_PAN_DEG,
@@ -191,6 +193,10 @@ class Tracker:
         # current pointing error and target bearing speed.
         self.desired_rate = config.MIN_TRACKING_STEP_RATE
 
+    def clamp_yaw(self, value):
+        """Constrain yaw angle within this tracker's [min_pan_deg, max_pan_deg] limits."""
+        return clamp(value, self.min_pan_deg, self.max_pan_deg)
+
     def on_radar_frame(self, target, now_ms):
         """Record this tracker's assigned target from the latest radar frame.
 
@@ -214,7 +220,7 @@ class Tracker:
         # Compute geometric yaw angle to the target
         yaw = solve_yaw(target[0], target[1],
                         self.pan_pivot_x_mm, self.pan_pivot_y_mm)
-        yaw = clamp(yaw, config.PAN_MIN_DEG, config.PAN_MAX_DEG)
+        yaw = self.clamp_yaw(yaw)
         self.last_raw_yaw = yaw
 
         # Calculate target angular speed (bearing rate in deg/s) for feed-forward
@@ -275,8 +281,7 @@ class Tracker:
                 target_yaw = solve_yaw(
                     x_mm, y_mm,
                     self.pan_pivot_x_mm, self.pan_pivot_y_mm)
-                target_yaw = clamp(target_yaw, config.PAN_MIN_DEG,
-                                   config.PAN_MAX_DEG)
+                target_yaw = self.clamp_yaw(target_yaw)
                 self.last_raw_yaw = target_yaw
 
             if not self.awake:
@@ -484,4 +489,5 @@ def main():
         print("Trackers stopped; all drivers disabled and eyes off.")
 
 
-main()
+if __name__ == "__main__":
+    main()

@@ -18,10 +18,18 @@ TMC_UART_TX_PIN = 23            # ESP32 TX through 1 kOhm resistor to shared lin
 TMC_UART_ID = 1                 # Hardware UART peripheral ID on ESP32
 TMC_UART_BAUDRATE = 115200      # Baud rate for TMC2209 register reads/writes
 
+# Pan angles are relative to each tracker's forward-facing pose. With the current
+# radar mounting, +X is toward the sensor's left. Positive yaw points to +X.
+MIN_YAW_DEG = -90.0             # Default mechanical/software pan limit to the right (deg)
+MAX_YAW_DEG = 90.0              # Default mechanical/software pan limit to the left (deg)
+PARK_YAW_DEG = 0.0              # Default resting/parked yaw angle (deg, facing center)
+
 # Two prop/gimbal trackers. Each entry is one pan motor plus one NeoPixel indicator pair.
 # Per-motor / per-tracker pivot offsets from the radar sensor:
 #   pan_pivot_x_mm: Lateral offset of pan pivot from radar (+X = sensor left)
 #   pan_pivot_y_mm: Forward offset of pan pivot from radar (+Y = forward)
+#   pan_min_deg: Mechanical/software pan limit to the right (deg)
+#   pan_max_deg: Mechanical/software pan limit to the left (deg)
 #
 # Note on Z offset:
 #   There is no Z (vertical) offset variable because the LD2450 is a 2D planar
@@ -45,6 +53,8 @@ TRACKERS = (
         "hold_current_ma": 390,
         "pan_pivot_x_mm": 0.0,
         "pan_pivot_y_mm": 0.0,
+        "pan_min_deg": MIN_YAW_DEG,
+        "pan_max_deg": MAX_YAW_DEG,
     },
     {
         "name": "Tracker 2",
@@ -58,6 +68,8 @@ TRACKERS = (
         "hold_current_ma": 390,
         "pan_pivot_x_mm": 0.0,
         "pan_pivot_y_mm": 0.0,
+        "pan_min_deg": MIN_YAW_DEG,
+        "pan_max_deg": MAX_YAW_DEG,
     },
 )
 
@@ -101,12 +113,6 @@ MAX_TRACKING_BEARING_RATE_DEG_S = 90.0    # Clamp on target angular speed to rej
 # TRACKING_TARGET_SMOOTHING_MS = 150  (350)      # Cuts lag by more than half (~150 ms vs 350 ms)
 # MAX_TRACKING_BEARING_RATE_DEG_S = 90.0 (45)   # Allows tracking fast swings up close
 # TRACKING_FEEDFORWARD_GAIN = 0.85 (0.65)          # Closer to 1:1 speed matching
-
-# Pan angles are relative to each tracker's forward-facing pose. With the current
-# radar mounting, +X is toward the sensor's left. Positive yaw points to +X.
-PAN_MIN_DEG = -60.0             # Mechanical/software pan limit to the right (deg)
-PAN_MAX_DEG = 60.0              # Mechanical/software pan limit to the left (deg)
-PARK_YAW_DEG = 0.0              # Default resting/parked yaw angle (deg, facing center)
 
 # Motion Shaping & Smoothing Toggles:
 # Set all to False for pure direct tracking. Turn them back on one at a time

@@ -1,8 +1,15 @@
 import math
+import sys
 import unittest
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
+
+if "machine" not in sys.modules:
+    sys.modules["machine"] = MagicMock()
+if "neopixel" not in sys.modules:
+    sys.modules["neopixel"] = MagicMock()
 
 import config
+import main
 from aiming import solve_yaw
 from ld2450 import (FRAME_FOOTER, FRAME_HEADER, LD2450Reader, decode_frame,
                     decode_frame_slots)
@@ -143,6 +150,43 @@ class TrackerConfigTests(unittest.TestCase):
             self.assertIn("pan_pivot_y_mm", tracker)
             self.assertIsInstance(tracker["pan_pivot_x_mm"], (int, float))
             self.assertIsInstance(tracker["pan_pivot_y_mm"], (int, float))
+
+    def test_trackers_have_pan_limits(self):
+        self.assertGreater(len(config.TRACKERS), 0)
+        for tracker in config.TRACKERS:
+            self.assertIn("pan_min_deg", tracker)
+            self.assertIn("pan_max_deg", tracker)
+            self.assertIsInstance(tracker["pan_min_deg"], (int, float))
+            self.assertIsInstance(tracker["pan_max_deg"], (int, float))
+            self.assertLess(tracker["pan_min_deg"], tracker["pan_max_deg"])
+
+
+class TrackerTests(unittest.TestCase):
+    def test_tracker_per_instance_pan_limits_and_clamp(self):
+        with patch("stepper.time.ticks_us", return_value=0, create=True), \
+             patch("stepper.time.ticks_diff", side_effect=lambda a, b: a - b, create=True):
+            tracker = main.Tracker(config.TRACKERS[0])
+
+            self.assertEqual(tracker.min_pan_deg, config.TRACKERS[0]["pan_min_deg"])
+            self.assertEqual(tracker.max_pan_deg, config.TRACKERS[0]["pan_max_deg"])
+            # Within range
+            self.assertEqual(tracker.clamp_yaw(15.0), 15.0)
+            self.assertEqual(tracker.clamp_yaw(-20.0), -20.0)
+            # Beyond limits
+            self.assertEqual(tracker.clamp_yaw(90.0), tracker.max_pan_deg)
+            self.assertEqual(tracker.clamp_yaw(-90.0), tracker.min_pan_deg)
+
+            # Custom per-instance limits
+            custom_cfg = dict(config.TRACKERS[0])
+            custom_cfg["pan_min_deg"] = -30.0
+            custom_cfg["pan_max_deg"] = 45.0
+            custom_tracker = main.Tracker(custom_cfg)
+
+            self.assertEqual(custom_tracker.min_pan_deg, -30.0)
+            self.assertEqual(custom_tracker.max_pan_deg, 45.0)
+            self.assertEqual(custom_tracker.clamp_yaw(50.0), 45.0)
+            self.assertEqual(custom_tracker.clamp_yaw(-50.0), -30.0)
+            self.assertEqual(custom_tracker.clamp_yaw(10.0), 10.0)
 
 
 class TargetSelectorTests(unittest.TestCase):

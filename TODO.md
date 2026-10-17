@@ -1,0 +1,1 @@
+1. Configure the LEDs to have a 'searching' colour and a 'target_lock' colour. Consider a target locked is the motor is positioned pointing at the target for more than N seconds (2?) with some angular tollerence built-in. Searching colour could be a yellow and target-lock a red.

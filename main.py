@@ -9,7 +9,7 @@ from machine import Pin, UART
 import neopixel
 
 import config
-from aiming import clamp, solve_angles
+from aiming import clamp, solve_yaw
 from ld2450 import LD2450Reader
 from stepper import StepperAxis
 from tmc2209 import REG_GLOBALSCALER, REG_IOIN, TMC2209
@@ -119,7 +119,6 @@ class Tracker:
         # (+X = sensor left, +Y = forward into detection zone)
         self.pan_pivot_x_mm = tracker_cfg.get("pan_pivot_x_mm", 0.0)
         self.pan_pivot_y_mm = tracker_cfg.get("pan_pivot_y_mm", 0.0)
-        self.pan_pivot_xyz = (self.pan_pivot_x_mm, self.pan_pivot_y_mm, 0)
 
         # Motion axis with ESP32 hardware RMT pulse generation:
         steps_per_revolution = (config.FULL_STEPS_PER_REVOLUTION *
@@ -213,9 +212,8 @@ class Tracker:
         self.last_target_ms = now_ms
 
         # Compute geometric yaw angle to the target
-        yaw, _ = solve_angles(target[0], target[1], 0,
-                              self.pan_pivot_xyz,
-                              (0, 0, 0))
+        yaw = solve_yaw(target[0], target[1],
+                        self.pan_pivot_x_mm, self.pan_pivot_y_mm)
         yaw = clamp(yaw, config.PAN_MIN_DEG, config.PAN_MAX_DEG)
         self.last_raw_yaw = yaw
 
@@ -274,10 +272,9 @@ class Tracker:
             x_mm, y_mm, speed_cm_s, resolution_mm = self.current_target
             target_yaw = self.last_raw_yaw
             if target_yaw is None:
-                target_yaw, _ = solve_angles(
-                    x_mm, y_mm, 0,
-                    self.pan_pivot_xyz,
-                    (0, 0, 0))
+                target_yaw = solve_yaw(
+                    x_mm, y_mm,
+                    self.pan_pivot_x_mm, self.pan_pivot_y_mm)
                 target_yaw = clamp(target_yaw, config.PAN_MIN_DEG,
                                    config.PAN_MAX_DEG)
                 self.last_raw_yaw = target_yaw

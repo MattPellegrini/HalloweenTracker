@@ -73,7 +73,7 @@ Host suite currently passes 32 tests. `./venv/bin/python -m py_compile *.py` and
 - `pan_signal_test.py`: legacy single-axis signal test (superseded by `motor_test.py`).
 - `tilt_motor_test.py`: finds/configures the tilt driver at address 1 on the shared UART and jogs it +/-20 degrees.
 - `pan_tracking_test.py`: pan-only radar tracking.
-- `aiming.py`: pure radar-to-yaw/pitch geometry and clamp.
+- `aiming.py`: pure radar-to-yaw geometry and clamp.
 - `tracking.py`: target validity filtering, nearest-two/fixed-slot assignment, error-shaped tracking speed, gated bearing-rate feed-forward, deadband hysteresis, target smoothing, and STEP-rate slew limiting.
 - `stepper.py`: non-blocking STEP/DIR axis logic utilizing ESP32 hardware RMT with bounded burst slices (15 ms), continuous real-time monotonic position tracking, and fallback bit-banging for host test environments.
 - `tests/test_protocol_and_aiming.py`: host-side parser, slot decoding, geometry, target assignment (nearest-two and fixed-slot), UART CRC/packet/current tests, motion-shaping tests, and RMT pulse generation / position tracking tests (32 tests total).

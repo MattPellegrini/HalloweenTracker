@@ -108,7 +108,7 @@ sequenceDiagram
      - `nearest_two`: Valid targets within `[300 mm, 6000 mm]` are sorted by range; Tracker 1 gets the closest, Tracker 2 gets the next closest.
   2. **Radar Frame Handler (`tracker.on_radar_frame`)**:
      - Updates `current_target` and refreshes `last_target_ms` (preventing target loss timeout).
-     - Solves geometric line-of-sight yaw angle using `aiming.solve_angles` and clamps to `[PAN_MIN_DEG, PAN_MAX_DEG]`.
+     - Solves geometric line-of-sight yaw angle using `aiming.solve_yaw` and clamps to `[PAN_MIN_DEG, PAN_MAX_DEG]`.
      - Computes target angular speed (bearing rate in deg/s) and applies a low-pass filter (`filtered_yaw_rate`) for feed-forward pacing.
   3. **Immediate Update**: Runs `tracker.update()` immediately to incorporate fresh radar coordinates without waiting for the next periodic tick.
 

@@ -2,6 +2,13 @@
 
 import time
 
+if not hasattr(time, "ticks_ms"):
+    time.ticks_ms = lambda: int(time.time() * 1000)
+if not hasattr(time, "ticks_diff"):
+    time.ticks_diff = lambda a, b: a - b
+if not hasattr(time, "sleep_ms"):
+    time.sleep_ms = lambda ms: time.sleep(ms / 1000.0)
+
 
 REG_GCONF = 0x00
 REG_GSTAT = 0x01
@@ -95,41 +102,47 @@ class TMC2209:
                               address, before, after, expected))
         return after
 
-    def read_register(self, address):
-        while self.uart.any():
-            self.uart.read()
+    def read_register(self, address, retries=2):
+        last_error = None
+        for attempt in range(retries + 1):
+            if attempt > 0:
+                time.sleep_ms(20)
+            while self.uart.any():
+                self.uart.read()
 
-        request = build_read_packet(self.slave_address, address)
-        self._send(request)
+            request = build_read_packet(self.slave_address, address)
+            self._send(request)
 
-        response = bytearray()
-        received = bytearray()
-        start = time.ticks_ms()
-        while time.ticks_diff(time.ticks_ms(), start) < self.timeout_ms:
-            available = self.uart.any()
-            if available:
-                chunk = self.uart.read(available)
-                received.extend(chunk)
-                response.extend(chunk)
-                while len(response) >= 8:
-                    marker = response.find(b"\x05")
-                    if marker < 0:
-                        response = bytearray()
-                        break
-                    if marker:
-                        response = bytearray(response[marker:])
-                    if len(response) < 8:
-                        break
-                    candidate = response[:8]
-                    if (candidate[2] == (address & 0x7f) and
-                            uart_crc(candidate[:7]) == candidate[7]):
-                        return ((candidate[3] << 24) |
-                                (candidate[4] << 16) |
-                                (candidate[5] << 8) | candidate[6])
-                    response = bytearray(response[1:])
-            time.sleep_ms(1)
-        raise OSError("no valid TMC2209 UART response for register 0x{:02x} "
-                  "(raw RX={})".format(address, received.hex()))
+            response = bytearray()
+            received = bytearray()
+            start = time.ticks_ms()
+            while time.ticks_diff(time.ticks_ms(), start) < self.timeout_ms:
+                available = self.uart.any()
+                if available:
+                    chunk = self.uart.read(available)
+                    received.extend(chunk)
+                    response.extend(chunk)
+                    while len(response) >= 8:
+                        marker = response.find(b"\x05")
+                        if marker < 0:
+                            response = bytearray()
+                            break
+                        if marker:
+                            response = bytearray(response[marker:])
+                        if len(response) < 8:
+                            break
+                        candidate = response[:8]
+                        if (candidate[2] == (address & 0x7f) and
+                                uart_crc(candidate[:7]) == candidate[7]):
+                            return ((candidate[3] << 24) |
+                                    (candidate[4] << 16) |
+                                    (candidate[5] << 8) | candidate[6])
+                        response = bytearray(response[1:])
+                time.sleep_ms(1)
+            last_error = OSError(
+                "no valid TMC2209 UART response for register 0x{:02x} "
+                "(raw RX={})".format(address, received.hex()))
+        raise last_error
 
     def configure_current(self, run_current_ma, hold_current_ma,
                           sense_resistor_ohms=0.11, vsense_volts=0.325):

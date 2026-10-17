@@ -4,7 +4,7 @@ from unittest.mock import patch
 from aiming import solve_angles
 from ld2450 import (FRAME_FOOTER, FRAME_HEADER, LD2450Reader, decode_frame,
                     decode_frame_slots)
-from tmc2209 import (build_read_packet, build_write_packet,
+from tmc2209 import (REG_IOIN, TMC2209, build_read_packet, build_write_packet,
                      current_cs_for_rms, gconf_for_uart, uart_crc)
 from stepper import StepperAxis
 from tracking import (TargetSelector, choose_two_targets, slew_step_rate,
@@ -299,6 +299,59 @@ class TMC2209Tests(unittest.TestCase):
     def test_current_code_is_clamped_to_register_range(self):
         self.assertEqual(current_cs_for_rms(0, 0.11, 0.325), 0)
         self.assertEqual(current_cs_for_rms(5000, 0.11, 0.325), 31)
+
+    def test_read_register_success_on_retry(self):
+        class MockTMCUART:
+            def __init__(self, responses):
+                self.responses = list(responses)
+                self.written = []
+                self.buf = bytearray()
+
+            def write(self, packet):
+                self.written.append(bytes(packet))
+                if self.responses:
+                    self.buf.extend(self.responses.pop(0))
+
+            def any(self):
+                return len(self.buf)
+
+            def read(self, count=None):
+                if count is None:
+                    count = len(self.buf)
+                chunk = bytes(self.buf[:count])
+                self.buf = self.buf[count:]
+                return chunk
+
+        read_echo = bytes((0x05, 0x00, 0x06, 0x6f))
+        reply = bytearray((0x05, 0xff, 0x06, 0x21, 0x00, 0x00, 0x41))
+        reply.append(uart_crc(reply))
+
+        mock_uart = MockTMCUART([read_echo, read_echo + reply])
+        driver = TMC2209(mock_uart, slave_address=0, timeout_ms=10)
+        value = driver.read_register(REG_IOIN, retries=2)
+        self.assertEqual(value, 0x21000041)
+        self.assertEqual(len(mock_uart.written), 2)
+
+    def test_read_register_fails_after_retries_exhausted(self):
+        class FailingUART:
+            def __init__(self):
+                self.buf = bytearray()
+            def write(self, packet):
+                self.buf.extend(bytes((0x05, 0x00, 0x06, 0x6f)))
+            def any(self):
+                return len(self.buf)
+            def read(self, count=None):
+                if count is None:
+                    count = len(self.buf)
+                chunk = bytes(self.buf[:count])
+                self.buf = self.buf[count:]
+                return chunk
+
+        driver = TMC2209(FailingUART(), slave_address=0, timeout_ms=5)
+        with self.assertRaises(OSError) as ctx:
+            driver.read_register(REG_IOIN, retries=1)
+        self.assertIn("no valid TMC2209 UART response", str(ctx.exception))
+        self.assertIn("0500066f", str(ctx.exception))
 
 
 if __name__ == "__main__":

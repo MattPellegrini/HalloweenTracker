@@ -1,6 +1,8 @@
 # Halloween Skull Tracker: AI Handoff
 
-Updated: 2026-10-10. Read this together with `README.md`, `wiring.md`, and `config.py` before advising on hardware or changing motor behavior. Treat observed tests below as stronger evidence than earlier conversational guesses. Do not assume untested tilt, LED, or assembled-prop behavior.
+Updated: 2026-10-16. Read this together with `README.md`, `wiring.md`, `config.py`, and `RMT_MIGRATION_PLAN.md` before advising on hardware or changing motor behavior. Treat observed tests below as stronger evidence than earlier conversational guesses. Do not assume untested tilt, LED, or assembled-prop behavior.
+
+See [RMT_MIGRATION_PLAN.md](RMT_MIGRATION_PLAN.md) for detailed architecture and transition specifics for hardware RMT motor pulse offloading and 1/16 microstepping.
 
 ## Project Goal
 

@@ -47,6 +47,7 @@ def configure_tmc_drivers():
             tx=Pin(config.TMC_UART_TX_PIN),
             rx=Pin(config.TMC_UART_RX_PIN),
         )
+        time.sleep_ms(50)
     except Exception as error:
         print("TMC UART open failed: {}".format(error))
         return None, {}

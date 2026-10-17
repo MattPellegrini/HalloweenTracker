@@ -34,6 +34,7 @@ def find_tmc_drivers():
                 bits=8, parity=None, stop=1,
                 tx=Pin(config.TMC_UART_TX_PIN),
                 rx=Pin(config.TMC_UART_RX_PIN))
+    time.sleep_ms(50)
     drivers = {}
     for skull in config.SKULLS:
         driver = TMC2209(uart, slave_address=skull["tmc_address"])

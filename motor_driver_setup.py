@@ -1,5 +1,6 @@
 """Configure and verify TMC2209 drivers for each skull; this script never steps a motor."""
 
+import time
 from machine import Pin, UART
 
 import config
@@ -64,6 +65,7 @@ def main():
             tx=Pin(config.TMC_UART_TX_PIN),
             rx=Pin(config.TMC_UART_RX_PIN),
         )
+        time.sleep_ms(50)
         print(
             "Connected to TMC UART (ID {}) at {} baud".format(
                 config.TMC_UART_ID, config.TMC_UART_BAUDRATE

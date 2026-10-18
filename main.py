@@ -471,7 +471,7 @@ def main():
                     tracker.on_radar_frame(target, now_ms)
 
                 # Run tracking pipeline on radar frame arrival
-                update_elapsed_ms = time.ticks_diff(now_ms, last_update_ms)
+                update_elapsed_ms = max(1, time.ticks_diff(now_ms, last_update_ms))
                 last_update_ms = now_ms
                 for tracker in trackers:
                     tracker.update(now_ms, update_elapsed_ms)

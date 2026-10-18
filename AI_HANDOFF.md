@@ -35,6 +35,7 @@ The project originally began as a single 2-axis (yaw + tilt) prototype. It was d
   - Physically mounted upside down relative to manual. Parser sign bit is corrected: +Y is forward, +X is toward sensor-left.
   - Radar streams 30-byte frames at ~10 Hz with 3 target slots: `(x_mm, y_mm, speed_cm_s, distance_resolution_mm)`.
   - Configured target gate: 300 mm to 6000 mm (`MIN_TARGET_RANGE_MM` to `MAX_TARGET_RANGE_MM`).
+  - **Pitch & Mounting Angle**: Recommended aimed ~10° to 15° downward when elevated (1.5–1.8 m). The narrow ~35° elevation beam otherwise misses shorter trick-or-treaters at close range (<2 m). No software handling/encoding of pitch is needed: LD2450 lacks elevation sensing, and 1-axis horizontal yaw kinematics ($\text{atan2}(X, Y)$) are virtually insensitive to small pitch variations ($<0.5^\circ$ error). Ensure sensor roll is 0° (level side-to-side) and stepper yaw shafts are mounted plumb.
 - **Stepper Drivers**: Two BigTreeTech (BTT) TMC2209 V1.3 modules.
   - **Shared UART Bus**: Single-wire half-duplex UART (`UART1`) at 115200 baud (`config.TMC_UART_BAUDRATE`).
     - ESP32 GPIO22 RX connects directly to the shared `RX`/UART pad on both drivers.

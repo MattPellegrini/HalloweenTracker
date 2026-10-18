@@ -57,6 +57,18 @@ and NEMA17 motor originally allocated for tilt.
 - **Radar**: Hi-Link LD2450, 5 V power, UART2 at 256000 baud (8 data bits, no
   parity, 1 stop bit). Radar TX connects to ESP32 GPIO16 (UART2 RX); radar RX
   to GPIO17 is optional for receive-only operation. Common ground required.
+  - **Mounting & Pitch Angle**: Aiming the radar tilted down by ~10° to 15° is
+    recommended when mounted at prop height (1.5–1.8 m). Because the sensor's
+    vertical elevation beam is narrow (~35° total, ±17.5°), a slight downward
+    tilt prevents approaching targets (especially shorter trick-or-treaters) from
+    slipping below detection at close range (1–2 m), while rejecting overhead
+    ceiling/tree clutter.
+  - **No Software Pitch Encoding Needed**: The LD2450 has a 1D horizontal antenna
+    array with no elevation ($Z$) measurement, and trackers steer only in 1-axis
+    horizontal yaw. Tilting down rotates purely around the $X$-axis, leaving
+    lateral position $X$ unaffected; the resulting difference between slant range
+    and ground distance alters the calculated yaw angle by $<0.5^\circ$ (well
+    under sensor noise). Keep radar roll level (0° roll) and motor shafts plumb.
 - **Shared TMC UART**:
   - ESP32 GPIO22 (RX) connects directly to the shared `RX`/UART pad of both BTT
     drivers.

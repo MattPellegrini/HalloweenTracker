@@ -31,7 +31,7 @@ PARK_YAW_DEG = 0.0              # Default resting/parked yaw angle (deg, facing 
 #   yaw_min_deg: Mechanical/software yaw limit to the right (deg)
 #   yaw_max_deg: Mechanical/software yaw limit to the left (deg)
 #
-# Note on Z offset:
+# Note on Z offset and Radar Pitch:
 #   There is no Z (vertical) offset variable because the LD2450 is a 2D planar
 #   radar (detecting only X and Y coordinates in the horizontal detection plane),
 #   and each tracker is currently configured for 1-axis horizontal yaw rotation.
@@ -40,6 +40,12 @@ PARK_YAW_DEG = 0.0              # Default resting/parked yaw angle (deg, facing 
 #   difference between the radar plane and the yaw pivot has zero geometric effect
 #   on the yaw angle. (A Z offset would only be relevant if 2-axis yaw/tilt
 #   mechanisms were implemented to compute pitch/elevation angles).
+#
+#   Similarly, aiming the radar ~10-15 degrees downward (recommended to maintain
+#   coverage of approaching trick-or-treaters at close range) does not require
+#   software encoding: tilting purely around the horizontal X-axis leaves lateral
+#   X unaffected, and the slight slant-vs-ground distance difference alters yaw
+#   by <0.5 deg (well below sensor noise). Ensure 0 deg roll and plumb motor shafts.
 TRACKERS = (
     {
         "name": "Tracker 1",

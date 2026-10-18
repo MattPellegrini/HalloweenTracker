@@ -143,15 +143,19 @@ class StepperAxis:
         return self.step_high
 
     def stop(self):
-        """Immediately stop in-flight pulses and align target with current position."""
+        """Immediately stop in-flight pulses, commit completed steps, and align target."""
         if self.rmt is not None and self.burst_in_flight > 0:
-            if not _HAS_ESP32_RMT or not isinstance(self.rmt, getattr(esp32, "RMT", type(None))):
+            if hasattr(self.rmt, "wait_done"):
+                try:
+                    self.rmt.wait_done()
+                except Exception:
+                    pass
+            if hasattr(self.rmt, "active"):
                 try:
                     self.rmt.active(False)
                 except Exception:
                     pass
-            # Sync completed_steps to the position reached before stopping
-            self.completed_steps = self.position_steps
+            self.completed_steps += self.burst_dir * self.burst_in_flight
             self.burst_in_flight = 0
         self.target_steps = self.completed_steps
 

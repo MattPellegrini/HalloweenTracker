@@ -11,20 +11,20 @@ Coordinate System Conventions:
 import math
 
 
-def solve_yaw(target_x_mm, target_y_mm, pan_pivot_x_mm=0.0, pan_pivot_y_mm=0.0):
-    """Compute line-of-sight yaw angle (degrees) from pan pivot to target.
+def solve_yaw(target_x_mm, target_y_mm, yaw_pivot_x_mm=0.0, yaw_pivot_y_mm=0.0):
+    """Compute line-of-sight yaw angle (degrees) from yaw pivot to target.
 
     Parameters:
       target_x_mm, target_y_mm:
         Target location in radar-centric millimetres.
-      pan_pivot_x_mm, pan_pivot_y_mm:
-        (x, y) location of the tracker's pan axis pivot relative to the radar.
+      yaw_pivot_x_mm, yaw_pivot_y_mm:
+        (x, y) location of the tracker's yaw axis pivot relative to the radar.
 
     Returns:
       yaw_deg in degrees. 0 deg points along +Y; positive yaw points toward +X.
     """
-    dx = target_x_mm - pan_pivot_x_mm
-    dy = target_y_mm - pan_pivot_y_mm
+    dx = target_x_mm - yaw_pivot_x_mm
+    dy = target_y_mm - yaw_pivot_y_mm
     return math.degrees(math.atan2(dx, dy))
 
 

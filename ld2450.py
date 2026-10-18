@@ -102,12 +102,12 @@ class LD2450Reader:
             # Retain only the trailing bytes that could form part of a header
             keep = len(FRAME_HEADER) - 1
             if len(self.buffer) > keep:
-                self.buffer = bytearray(self.buffer[-keep:])
+                del self.buffer[:len(self.buffer) - keep]
             return None
 
         # Discard any noise prior to the frame header
-        if header_index:
-            self.buffer = bytearray(self.buffer[header_index:])
+        if header_index > 0:
+            del self.buffer[:header_index]
 
         # Wait until full 30-byte frame length is accumulated
         if len(self.buffer) < FRAME_LENGTH:
@@ -116,10 +116,10 @@ class LD2450Reader:
         # Validate 2-byte frame footer
         if self.buffer[FRAME_LENGTH - 2:FRAME_LENGTH] != FRAME_FOOTER:
             # Corrupted frame: shift past the invalid byte and search again
-            self.buffer = bytearray(self.buffer[1:])
+            del self.buffer[:1]
             return None
 
         # Extract and unpack the validated frame
-        frame = bytes(self.buffer[:FRAME_LENGTH])
-        self.buffer = bytearray(self.buffer[FRAME_LENGTH:])
+        frame = self.buffer[:FRAME_LENGTH]
+        del self.buffer[:FRAME_LENGTH]
         return decode_frame_slots(frame)

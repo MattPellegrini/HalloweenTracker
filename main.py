@@ -345,6 +345,7 @@ class Tracker:
                     config.TRACKING_ERROR_SPEED_EXPONENT,
                     self.axis.steps_per_degree,
                     config.TRACKING_FEEDFORWARD_GAIN,
+                    getattr(config, "TRACKING_FEEDFORWARD_MIN_ERROR_DEG", 3.0),
                 )
             else:
                 desired_rate = getattr(config, "TRACKING_BASE_STEP_RATE", 400)

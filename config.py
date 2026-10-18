@@ -104,6 +104,7 @@ TRACKING_DEADBAND_STOP_DEG = 0.0
 TRACKING_FULL_SPEED_ERROR_DEG = 12.0     # Pointing error (deg) at which speed reaches MAX_STEP_RATE
 TRACKING_ERROR_SPEED_EXPONENT = 1.4       # Exponent for error-to-speed curve (>1 = gentle near target)
 TRACKING_FEEDFORWARD_GAIN = 0.85          # Target velocity feed-forward gain (pacing moving targets)
+TRACKING_FEEDFORWARD_MIN_ERROR_DEG = 3.0  # Error threshold (deg) before feed-forward activates
 TRACKING_STEP_RATE_SLEW_PPS_S = 14400     # Max acceleration/deceleration rate (pulses/s^2)
 TRACKING_RATE_FILTER_ALPHA = 0.35         # Low-pass filter weight for target angular rate estimation
 TRACKING_TARGET_SMOOTHING_MS = 150        # Time constant (ms) for exponential target angle smoothing

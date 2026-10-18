@@ -23,8 +23,9 @@ def valid_target(target, minimum_range_mm, maximum_range_mm):
     x_mm, y_mm, speed_cm_s, resolution_mm = target
     distance_squared = x_mm * x_mm + y_mm * y_mm
     # Target must be in front (y > 0) and between minimum and maximum range
-    return (y_mm > 0 and minimum_range_mm ** 2 <= distance_squared <=
-            maximum_range_mm ** 2)
+    return (y_mm > 0 and
+            minimum_range_mm * minimum_range_mm <= distance_squared <=
+            maximum_range_mm * maximum_range_mm)
 
 
 def choose_two_targets(slots, minimum_range_mm, maximum_range_mm,
@@ -54,7 +55,7 @@ def choose_two_targets(slots, minimum_range_mm, maximum_range_mm,
     # 'nearest_two' mode: filter all valid targets and sort by distance squared
     valid = [target for target in slots
              if valid_target(target, minimum_range_mm, maximum_range_mm)]
-    valid.sort(key=lambda item: item[0] ** 2 + item[1] ** 2)
+    valid.sort(key=lambda item: item[0] * item[0] + item[1] * item[1])
     first = valid[0] if len(valid) > 0 else None
     second = valid[1] if len(valid) > 1 else None
     return first, second
@@ -63,7 +64,8 @@ def choose_two_targets(slots, minimum_range_mm, maximum_range_mm,
 def tracking_step_rate(error_degrees, bearing_rate_deg_s, minimum_rate,
                        maximum_rate, full_speed_error_degrees,
                        minimum_error_degrees, rate_exponent,
-                       steps_per_degree, feedforward_gain):
+                       steps_per_degree, feedforward_gain,
+                       feedforward_min_error_deg=3.0):
     """Return an error-shaped tracking rate with target-rate feed-forward.
 
     Motion profile:
@@ -71,9 +73,9 @@ def tracking_step_rate(error_degrees, bearing_rate_deg_s, minimum_rate,
         eases down toward minimum_rate according to normalized_error^rate_exponent.
       - At or beyond full_speed_error_degrees, the error-proportional rate saturates
         at maximum_rate.
-      - Bearing-rate feed-forward: When chasing a moving target (error >= 3 deg),
+      - Bearing-rate feed-forward: When chasing a moving target (error >= feedforward_min_error_deg),
         target angular speed is converted to step rate to help the tracker match
-        the person's walking pace without lagging behind. Below 3 deg of error,
+        the person's walking pace without lagging behind. Below feedforward_min_error_deg of error,
         feed-forward is gated off to prevent radar coordinate noise from creating
         tick vibrations at rest.
     """
@@ -84,8 +86,8 @@ def tracking_step_rate(error_degrees, bearing_rate_deg_s, minimum_rate,
     error_rate = (minimum_rate + (maximum_rate - minimum_rate) *
                   (normalized_error ** rate_exponent))
 
-    # Feed-forward is only activated when error >= 3.0 deg to prevent noise jitter
-    feedforward_active = abs(error_degrees) >= 3.0
+    # Feed-forward is only activated when error >= threshold to prevent noise jitter
+    feedforward_active = abs(error_degrees) >= feedforward_min_error_deg
     feedforward_rate = (abs(bearing_rate_deg_s) * steps_per_degree *
                         feedforward_gain) if feedforward_active else 0.0
 
@@ -170,12 +172,12 @@ class TargetSelector:
         if self.previous is None:
             # First acquisition: choose closest to the sensor
             selected = min(candidates,
-                           key=lambda item: item[0] ** 2 + item[1] ** 2)
+                           key=lambda item: item[0] * item[0] + item[1] * item[1])
         else:
             # Maintain track continuity: choose target closest to previous position
             old_x, old_y = self.previous
             selected = min(candidates,
-                           key=lambda item: (item[0] - old_x) ** 2 +
-                           (item[1] - old_y) ** 2)
+                           key=lambda item: (item[0] - old_x) * (item[0] - old_x) +
+                           (item[1] - old_y) * (item[1] - old_y))
         self.previous = (selected[0], selected[1])
         return selected

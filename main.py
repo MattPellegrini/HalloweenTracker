@@ -229,7 +229,7 @@ class Tracker:
         # Calculate target angular speed (bearing rate in deg/s) for feed-forward
         if self.last_bearing_ms is not None and self.last_bearing_yaw is not None:
             bearing_elapsed_ms = time.ticks_diff(now_ms, self.last_bearing_ms)
-            if bearing_elapsed_ms > 0:
+            if 0 < bearing_elapsed_ms <= 250:
                 yaw_rate = min(
                     abs(yaw - self.last_bearing_yaw) * 1000.0 /
                     bearing_elapsed_ms,
@@ -237,6 +237,8 @@ class Tracker:
                 alpha = config.TRACKING_RATE_FILTER_ALPHA
                 self.filtered_yaw_rate += alpha * (
                     yaw_rate - self.filtered_yaw_rate)
+            else:
+                self.filtered_yaw_rate = 0.0
         self.last_bearing_yaw = yaw
         self.last_bearing_ms = now_ms
 

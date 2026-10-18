@@ -118,15 +118,15 @@ class Tracker:
         # Prop geometry: position of this motor's yaw axis relative to the radar.
         # (+X = sensor left, +Y = forward into detection zone)
         self.yaw_pivot_x_mm = tracker_cfg.get(
-            "yaw_pivot_x_mm", tracker_cfg.get("yaw_pivot_x_mm", 0.0))
+            "yaw_pivot_x_mm", tracker_cfg.get("pan_pivot_x_mm", 0.0))
         self.yaw_pivot_y_mm = tracker_cfg.get(
-            "yaw_pivot_y_mm", tracker_cfg.get("yaw_pivot_y_mm", 0.0))
+            "yaw_pivot_y_mm", tracker_cfg.get("pan_pivot_y_mm", 0.0))
         self.yaw_min_deg = tracker_cfg.get(
             "yaw_min_deg", tracker_cfg.get(
-                "yaw_min_deg", getattr(config, "MIN_YAW_DEG", -90.0)))
+                "pan_min_deg", getattr(config, "MIN_YAW_DEG", -90.0)))
         self.yaw_max_deg = tracker_cfg.get(
             "yaw_max_deg", tracker_cfg.get(
-                "yaw_max_deg", getattr(config, "MAX_YAW_DEG", 90.0)))
+                "pan_max_deg", getattr(config, "MAX_YAW_DEG", 90.0)))
 
         # Motion axis with ESP32 hardware RMT pulse generation:
         steps_per_revolution = (config.FULL_STEPS_PER_REVOLUTION *
@@ -140,7 +140,7 @@ class Tracker:
             self.yaw_max_deg,
             config.MAX_STEP_RATE,
             config.ENABLE_ACTIVE_LOW,
-            getattr(config, "STARTUP_YAW_DEG", getattr(config, "STARTUP_YAW_DEG", config.PARK_YAW_DEG)),
+            getattr(config, "STARTUP_YAW_DEG", config.PARK_YAW_DEG),
             tracker_cfg["direction_inverted"],
             rmt_resolution_hz=getattr(config, "RMT_RESOLUTION_HZ", 1000000),
             pulse_width_us=getattr(config, "RMT_PULSE_WIDTH_US", 10),
@@ -281,6 +281,8 @@ class Tracker:
                 print("{}: target lost; returning to park.".format(self.name))
         else:
             # Active target: determine target yaw and ensure eyes are illuminated
+            if self.current_target is None:
+                return
             x_mm, y_mm, speed_cm_s, resolution_mm = self.current_target
             target_yaw = self.last_raw_yaw
             if target_yaw is None:
@@ -411,7 +413,7 @@ def main():
     if config.POSITION_MODE != "assume":
         raise RuntimeError("selected position mode is not implemented")
     print("Startup pose: every tracker yaw at {} deg".format(
-        getattr(config, "STARTUP_YAW_DEG", getattr(config, "STARTUP_YAW_DEG", config.PARK_YAW_DEG))))
+        getattr(config, "STARTUP_YAW_DEG", config.PARK_YAW_DEG)))
 
     trackers = [Tracker(tracker_cfg) for tracker_cfg in config.TRACKERS]
     tmc_uart = None

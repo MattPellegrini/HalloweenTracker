@@ -18,6 +18,7 @@ try:
     import esp32
     _HAS_ESP32_RMT = hasattr(esp32, "RMT")
 except (ImportError, AttributeError):
+    esp32 = None
     _HAS_ESP32_RMT = False
 
 import config

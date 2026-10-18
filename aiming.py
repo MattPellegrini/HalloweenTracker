@@ -11,7 +11,7 @@ Coordinate System Conventions:
 import math
 
 
-def solve_yaw(target_x_mm, target_y_mm, yaw_pivot_x_mm=0.0, yaw_pivot_y_mm=0.0):
+def solve_yaw(target_x_mm, target_y_mm, yaw_pivot_x_mm=0.0, yaw_pivot_y_mm=0.0, **kwargs):
     """Compute line-of-sight yaw angle (degrees) from yaw pivot to target.
 
     Parameters:
@@ -23,6 +23,10 @@ def solve_yaw(target_x_mm, target_y_mm, yaw_pivot_x_mm=0.0, yaw_pivot_y_mm=0.0):
     Returns:
       yaw_deg in degrees. 0 deg points along +Y; positive yaw points toward +X.
     """
+    if "pan_pivot_x_mm" in kwargs:
+        yaw_pivot_x_mm = kwargs["pan_pivot_x_mm"]
+    if "pan_pivot_y_mm" in kwargs:
+        yaw_pivot_y_mm = kwargs["pan_pivot_y_mm"]
     dx = target_x_mm - yaw_pivot_x_mm
     dy = target_y_mm - yaw_pivot_y_mm
     return math.degrees(math.atan2(dx, dy))

@@ -180,8 +180,9 @@ class TMC2209:
                         if len(response) < 8:
                             break
                         candidate = response[:8]
-                        # Verify register address match and valid CRC-8
-                        if (candidate[2] == (address & 0x7f) and
+                        # Verify master address (0xFF), register address match, and valid CRC-8
+                        if (candidate[1] == 0xff and
+                                candidate[2] == (address & 0x7f) and
                                 uart_crc(candidate[:7]) == candidate[7]):
                             return ((candidate[3] << 24) |
                                     (candidate[4] << 16) |

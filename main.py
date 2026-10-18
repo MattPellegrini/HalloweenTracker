@@ -161,6 +161,7 @@ class Tracker:
         # When reversing, the tracker decelerates to MIN_TRACKING_STEP_RATE first
         # to avoid jerking and step loss.
         self.reversing = False
+        self.current_motion_dir = 0
 
         # --- Target Tracking & History ---
         # self.current_target: (x_mm, y_mm, speed_cm_s, resolution_mm) tuple of
@@ -349,11 +350,10 @@ class Tracker:
 
             # Apply acceleration/deceleration slew rate limiting
             if getattr(config, "ENABLE_RATE_SLEW", True):
-                previous_difference = (self.axis.target_steps -
-                                       self.axis.position_steps)
-                # Check for direction reversal (braking before switching direction)
-                reversing = (previous_difference != 0 and
-                             previous_difference * error_degrees < 0)
+                desired_dir = 1 if error_degrees > 0 else (-1 if error_degrees < 0 else 0)
+                reversing = (self.current_motion_dir != 0 and
+                             desired_dir != 0 and
+                             self.current_motion_dir != desired_dir)
                 self.reversing = reversing
                 if reversing and self.axis.step_rate > config.MIN_TRACKING_STEP_RATE:
                     # Decelerate to minimum speed before executing reverse
@@ -362,9 +362,12 @@ class Tracker:
                                           elapsed_ms,
                                           config.TRACKING_STEP_RATE_SLEW_PPS_S)
                     self.axis.set_step_rate(rate)
-                    self.axis.set_target_degrees(current_degrees)
+                    self.axis.set_target_degrees(
+                        (self.axis.position_steps / self.axis.steps_per_degree) +
+                        self.current_motion_dir)
                 else:
-                    # Accelerate or cruise toward desired rate
+                    # Reversal brake complete or continuing in same direction
+                    self.current_motion_dir = desired_dir
                     rate = slew_step_rate(self.axis.step_rate, desired_rate,
                                           elapsed_ms,
                                           config.TRACKING_STEP_RATE_SLEW_PPS_S)
@@ -372,15 +375,17 @@ class Tracker:
                     self.axis.set_target_degrees(self.target_yaw)
             else:
                 self.reversing = False
+                self.current_motion_dir = 1 if error_degrees > 0 else (-1 if error_degrees < 0 else 0)
                 self.axis.set_step_rate(desired_rate)
                 self.axis.set_target_degrees(self.target_yaw)
         else:
             # Not moving: hold current position and reset rate to minimum floor
             self.desired_rate = config.MIN_TRACKING_STEP_RATE
             self.reversing = False
+            self.current_motion_dir = 0
             self.axis.set_step_rate(config.MIN_TRACKING_STEP_RATE)
             if getattr(config, "ENABLE_DEADBAND", True):
-                self.axis.set_target_degrees(current_degrees)
+                self.axis.target_steps = self.axis.position_steps
             else:
                 self.axis.set_target_degrees(self.target_yaw)
 

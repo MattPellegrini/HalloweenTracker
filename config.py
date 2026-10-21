@@ -95,23 +95,23 @@ FULL_STEPS_PER_REVOLUTION = 200
 # motion with resonance-free coil micro-stepping.
 MICROSTEPS = 16
 # Hardware RMT generates step pulses with zero CPU bit-banging overhead.
-# 6400 pps (~720 deg/s or 2.0 rev/s at 1/16) provides rapid tracking response.
-MAX_STEP_RATE = 6400
-MIN_TRACKING_STEP_RATE = 35     # Floor step rate while moving (avoids crawl/resonance)
+# 2800 pps (~315 deg/s or ~0.88 rev/s at 1/16) provides responsive tracking
+# without violent swinging when acquiring or losing targets across large angles.
+MAX_STEP_RATE = 2800
+MIN_TRACKING_STEP_RATE = 25     # Floor step rate while moving (avoids crawl/resonance)
 
-# Micro-hysteresis deadband: 2 microsteps (~0.225 deg at 1/16 microstepping).
-# Instead of the old 2.5 deg ratchet, a small 2-microstep deadband prevents
-# hunting over a single rounding digit when standing still.
-# Once moving beyond 2 microsteps, tracking is smooth and continuous to target.
-TRACKING_DEADBAND_START_DEG = 0.225
-TRACKING_DEADBAND_STOP_DEG = 0.0
+# Micro-hysteresis deadband:
+# Widened to 1.2 deg start / 0.4 deg stop to absorb LD2450 sensor noise and
+# target breathing fluctuations without jittering back and forth at rest.
+TRACKING_DEADBAND_START_DEG = 1.2
+TRACKING_DEADBAND_STOP_DEG = 0.4
 
 # Speed shaping and feed-forward parameters:
-TRACKING_FULL_SPEED_ERROR_DEG = 12.0     # Pointing error (deg) at which speed reaches MAX_STEP_RATE
-TRACKING_ERROR_SPEED_EXPONENT = 1.4       # Exponent for error-to-speed curve (>1 = gentle near target)
+TRACKING_FULL_SPEED_ERROR_DEG = 22.0     # Pointing error (deg) at which speed reaches MAX_STEP_RATE
+TRACKING_ERROR_SPEED_EXPONENT = 1.1       # Exponent for error-to-speed curve (near-linear = snappier catchup)
 TRACKING_FEEDFORWARD_GAIN = 0.85          # Target velocity feed-forward gain (pacing moving targets)
-TRACKING_FEEDFORWARD_MIN_ERROR_DEG = 3.0  # Error threshold (deg) before feed-forward activates
-TRACKING_STEP_RATE_SLEW_PPS_S = 14400     # Max acceleration/deceleration rate (pulses/s^2)
+TRACKING_FEEDFORWARD_MIN_ERROR_DEG = 1.8  # Error threshold (deg) before feed-forward activates
+TRACKING_STEP_RATE_SLEW_PPS_S = 22000     # Max acceleration/deceleration rate (pulses/s^2)
 TRACKING_RATE_FILTER_ALPHA = 0.35         # Low-pass filter weight for target angular rate estimation
 TRACKING_TARGET_SMOOTHING_MS = 150        # Time constant (ms) for exponential target angle smoothing
 MAX_TRACKING_BEARING_RATE_DEG_S = 90.0    # Clamp on target angular speed to reject sensor noise jumps

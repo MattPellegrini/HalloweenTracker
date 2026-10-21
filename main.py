@@ -13,7 +13,7 @@ from aiming import clamp, solve_yaw
 from ld2450 import LD2450Reader
 from stepper import StepperAxis
 from tmc2209 import REG_GLOBALSCALER, REG_IOIN, TMC2209
-from tracking import (choose_two_targets, slew_step_rate,
+from tracking import (assign_targets, choose_two_targets, slew_step_rate,
                       smooth_toward_target, tracking_step_rate,
                       update_deadband)
 
@@ -467,15 +467,16 @@ def main():
             targets = radar.poll()
             now_ms = time.ticks_ms()
             if targets is not None:
-                # Assign radar targets to trackers (fixed_slot or nearest_two)
+                # Assign radar targets to trackers (fixed_slot or nearest)
                 targetless_behavior = getattr(
                     config, "TARGETLESS_BEHAVIOR",
                     getattr(config, "TARGETLESS_BEHAVIOUR", "rest"))
-                assigned = choose_two_targets(targets,
-                                              config.MIN_TARGET_RANGE_MM,
-                                              config.MAX_TARGET_RANGE_MM,
-                                              config.TARGET_ASSIGNMENT_MODE,
-                                              targetless_behavior)
+                assigned = assign_targets(targets,
+                                          len(trackers),
+                                          config.MIN_TARGET_RANGE_MM,
+                                          config.MAX_TARGET_RANGE_MM,
+                                          config.TARGET_ASSIGNMENT_MODE,
+                                          targetless_behavior)
                 for tracker, target in zip(trackers, assigned):
                     tracker.on_radar_frame(target, now_ms)
 

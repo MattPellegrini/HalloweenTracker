@@ -2,7 +2,7 @@
 
 This module provides:
   1. Target filtering: Range checking and forward-hemisphere gating.
-  2. Target assignment: Allocating radar targets to trackers ('fixed_slot' or 'nearest_two').
+  2. Target assignment: Allocating radar targets to trackers ('nearest' or 'fixed_slot').
   3. Exponential angle smoothing: Low-pass filtering to glide smoothly over sensor jitter.
   4. Micro-hysteresis deadband: Start/stop thresholds to prevent hunting at rest.
   5. Speed shaping: Error-proportional power curve with velocity feed-forward.
@@ -28,21 +28,20 @@ def valid_target(target, minimum_range_mm, maximum_range_mm):
             maximum_range_mm * maximum_range_mm)
 
 
-def choose_two_targets(slots, minimum_range_mm, maximum_range_mm,
-                       assignment_mode, targetless_behavior="rest"):
-    """Assign targets to (tracker1, tracker2); either returned target may be None.
+def assign_targets(slots, tracker_count, minimum_range_mm, maximum_range_mm,
+                   assignment_mode, targetless_behavior="rest"):
+    """Assign radar targets to an arbitrary number of trackers (1, 2, or 3).
 
     Assignment Modes:
-      'fixed_slot':
-        Tracker 1 always tracks radar hardware slot 1, Tracker 2 tracks slot 2.
-        If a slot is empty or out-of-range, that specific tracker parks/idles
-        (unless targetless_behavior is 'track_remaining').
-        This provides deterministic 1:1 mapping to radar detection tracks.
-
-      'nearest_two':
+      'nearest' (or legacy alias 'nearest_two'):
         Sorts all valid targets by Euclidean distance from the sensor.
-        Tracker 1 tracks the closest target; Tracker 2 tracks the second closest.
-        When fewer than 2 targets exist, the remaining tracker(s) park/idle
+        Tracker 1 tracks the closest target, Tracker 2 the next closest, etc.
+        When fewer valid targets exist than trackers, remaining trackers
+        are unassigned (unless targetless_behavior is 'track_remaining').
+
+      'fixed_slot':
+        Tracker index i always tracks radar hardware slot i (1-based: slot 1 -> Tracker 1).
+        If a slot is empty or out-of-range, that tracker is unassigned
         (unless targetless_behavior is 'track_remaining').
 
     Targetless Behaviors:
@@ -50,44 +49,65 @@ def choose_two_targets(slots, minimum_range_mm, maximum_range_mm,
         Unassigned trackers receive None (park facing center with LEDs off).
 
       'track_remaining':
-        If one tracker is unassigned but another has a target (or if only 1
-        valid target exists in any radar slot), both trackers follow that target.
-        Both park only when 0 valid targets exist.
+        If fewer valid targets exist than trackers, or if a tracker has no
+        direct target, unassigned trackers follow an available target:
+        first choosing any unassigned valid target, and otherwise falling back
+        to the primary/closest target.
+        Trackers park only when 0 valid targets exist.
+
+    Returns:
+      A list of length tracker_count where each element is a target tuple
+      (x_mm, y_mm, speed_cm_s, resolution_mm) or None.
     """
+    if tracker_count <= 0:
+        return []
+
     valid = [target for target in slots
              if valid_target(target, minimum_range_mm, maximum_range_mm)]
+    if not valid:
+        return [None] * tracker_count
 
     if assignment_mode == "fixed_slot":
-        first = (slots[0] if len(slots) > 0 and
-                 valid_target(slots[0], minimum_range_mm, maximum_range_mm)
-                 else None)
-        second = (slots[1] if len(slots) > 1 and
-                  valid_target(slots[1], minimum_range_mm, maximum_range_mm)
-                  else None)
+        assigned = [
+            slots[i] if i < len(slots) and valid_target(slots[i], minimum_range_mm, maximum_range_mm)
+            else None
+            for i in range(tracker_count)
+        ]
+        fallback_targets = list(valid)
     else:
-        # 'nearest_two' mode: filter all valid targets and sort by distance squared
+        # 'nearest' (and legacy alias 'nearest_two')
         valid_sorted = list(valid)
         valid_sorted.sort(key=lambda item: item[0] * item[0] + item[1] * item[1])
-        first = valid_sorted[0] if len(valid_sorted) > 0 else None
-        second = valid_sorted[1] if len(valid_sorted) > 1 else None
+        assigned = [
+            valid_sorted[i] if i < len(valid_sorted) else None
+            for i in range(tracker_count)
+        ]
+        fallback_targets = valid_sorted
 
-    # Fallback behavior when a tracker has no assigned target
     if targetless_behavior == "track_remaining":
-        if first is None and second is not None:
-            remaining = [t for t in valid if t is not second]
-            first = remaining[0] if remaining else second
-        elif second is None and first is not None:
-            remaining = [t for t in valid if t is not first]
-            second = remaining[0] if remaining else first
-        elif first is None and second is None:
-            if len(valid) >= 2:
-                first = valid[0]
-                second = valid[1]
-            elif len(valid) == 1:
-                first = valid[0]
-                second = valid[0]
+        unassigned_targets = [
+            t for t in fallback_targets
+            if not any(t is a for a in assigned if a is not None)
+        ]
+        for i in range(tracker_count):
+            if assigned[i] is None:
+                if unassigned_targets:
+                    assigned[i] = unassigned_targets.pop(0)
+                else:
+                    assigned[i] = fallback_targets[0]
 
-    return first, second
+    return assigned
+
+
+def choose_two_targets(slots, minimum_range_mm, maximum_range_mm,
+                       assignment_mode, targetless_behavior="rest"):
+    """Assign targets to (tracker1, tracker2); either returned target may be None.
+
+    Legacy 2-tracker wrapper around assign_targets().
+    """
+    assigned = assign_targets(slots, 2, minimum_range_mm, maximum_range_mm,
+                              assignment_mode, targetless_behavior)
+    return assigned[0], assigned[1]
 
 
 def tracking_step_rate(error_degrees, bearing_rate_deg_s, minimum_rate,

@@ -77,6 +77,22 @@ TRACKERS = (
         "yaw_min_deg": MIN_YAW_DEG,
         "yaw_max_deg": MAX_YAW_DEG,
     },
+    # Tracker 3 reference configuration (commented out until physical 3rd skull is wired):
+    # {
+    #     "name": "Tracker 3",
+    #     "step_pin": 32,
+    #     "dir_pin": 33,
+    #     "enable_pin": 4,
+    #     "eyes_pin": 5,
+    #     "tmc_address": 2,
+    #     "direction_inverted": False,
+    #     "run_current_ma": 770,
+    #     "hold_current_ma": 390,
+    #     "yaw_pivot_x_mm": 250.0,
+    #     "yaw_pivot_y_mm": 0.0,
+    #     "yaw_min_deg": MIN_YAW_DEG,
+    #     "yaw_max_deg": MAX_YAW_DEG,
+    # },
 )
 
 # NeoPixel WS2812B eye indicators
@@ -145,16 +161,17 @@ RMT_PULSE_WIDTH_US = 10         # STEP high pulse duration (microseconds)
 RMT_BURST_SLICE_MS = 15         # Non-blocking slice duration (ms) per RMT pulse burst
 
 # How trackers pick targets from the radar frame:
-#   "nearest_two" - tracker 1 follows the nearest valid target, tracker 2 the
-#                   next-nearest. Either idles when fewer targets exist.
-#   "fixed_slot"  - tracker 1 always follows radar slot 1, tracker 2 slot 2;
-#                   an empty slot parks that tracker.
-TARGET_ASSIGNMENT_MODE = "fixed_slot"
+#   "nearest"     - trackers follow closest targets (tracker 1 = nearest, tracker 2 = next-nearest,
+#                   tracker 3 = 3rd-nearest). Natural for 1, 2, or 3 skulls.
+#                   (legacy alias: "nearest_two")
+#   "fixed_slot"  - tracker 1 follows radar slot 1, tracker 2 slot 2, tracker 3 slot 3;
+#                   an empty slot parks that tracker (unless targetless behavior is track_remaining).
+TARGET_ASSIGNMENT_MODE = "nearest"
 
 # Behavior when a tracker has no target assigned:
-#   "track_remaining" - if one skull's target disappears (or only 1 target is
-#                       detected), both skulls track the remaining target.
-#                       Both rest only when no targets are detected.
+#   "track_remaining" - if fewer targets than skulls are detected (e.g. only 1 person
+#                       for 2 or 3 skulls, or slot empty), unassigned skulls follow an
+#                       available target. Skulls rest only when no targets are detected.
 #   "rest"            - unassigned skulls park facing center with LEDs off.
 TARGETLESS_BEHAVIOR = "track_remaining"
 TARGETLESS_BEHAVIOUR = TARGETLESS_BEHAVIOR  # Support British/Commonwealth spelling

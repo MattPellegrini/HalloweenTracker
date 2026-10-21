@@ -29,20 +29,34 @@ def valid_target(target, minimum_range_mm, maximum_range_mm):
 
 
 def choose_two_targets(slots, minimum_range_mm, maximum_range_mm,
-                       assignment_mode):
+                       assignment_mode, targetless_behavior="rest"):
     """Assign targets to (tracker1, tracker2); either returned target may be None.
 
     Assignment Modes:
       'fixed_slot':
         Tracker 1 always tracks radar hardware slot 1, Tracker 2 tracks slot 2.
-        If a slot is empty or out-of-range, that specific tracker parks/idles.
+        If a slot is empty or out-of-range, that specific tracker parks/idles
+        (unless targetless_behavior is 'track_remaining').
         This provides deterministic 1:1 mapping to radar detection tracks.
 
       'nearest_two':
         Sorts all valid targets by Euclidean distance from the sensor.
         Tracker 1 tracks the closest target; Tracker 2 tracks the second closest.
-        When fewer than 2 targets exist, the remaining tracker(s) park/idle.
+        When fewer than 2 targets exist, the remaining tracker(s) park/idle
+        (unless targetless_behavior is 'track_remaining').
+
+    Targetless Behaviors:
+      'rest':
+        Unassigned trackers receive None (park facing center with LEDs off).
+
+      'track_remaining':
+        If one tracker is unassigned but another has a target (or if only 1
+        valid target exists in any radar slot), both trackers follow that target.
+        Both park only when 0 valid targets exist.
     """
+    valid = [target for target in slots
+             if valid_target(target, minimum_range_mm, maximum_range_mm)]
+
     if assignment_mode == "fixed_slot":
         first = (slots[0] if len(slots) > 0 and
                  valid_target(slots[0], minimum_range_mm, maximum_range_mm)
@@ -50,14 +64,29 @@ def choose_two_targets(slots, minimum_range_mm, maximum_range_mm,
         second = (slots[1] if len(slots) > 1 and
                   valid_target(slots[1], minimum_range_mm, maximum_range_mm)
                   else None)
-        return first, second
+    else:
+        # 'nearest_two' mode: filter all valid targets and sort by distance squared
+        valid_sorted = list(valid)
+        valid_sorted.sort(key=lambda item: item[0] * item[0] + item[1] * item[1])
+        first = valid_sorted[0] if len(valid_sorted) > 0 else None
+        second = valid_sorted[1] if len(valid_sorted) > 1 else None
 
-    # 'nearest_two' mode: filter all valid targets and sort by distance squared
-    valid = [target for target in slots
-             if valid_target(target, minimum_range_mm, maximum_range_mm)]
-    valid.sort(key=lambda item: item[0] * item[0] + item[1] * item[1])
-    first = valid[0] if len(valid) > 0 else None
-    second = valid[1] if len(valid) > 1 else None
+    # Fallback behavior when a tracker has no assigned target
+    if targetless_behavior == "track_remaining":
+        if first is None and second is not None:
+            remaining = [t for t in valid if t is not second]
+            first = remaining[0] if remaining else second
+        elif second is None and first is not None:
+            remaining = [t for t in valid if t is not first]
+            second = remaining[0] if remaining else first
+        elif first is None and second is None:
+            if len(valid) >= 2:
+                first = valid[0]
+                second = valid[1]
+            elif len(valid) == 1:
+                first = valid[0]
+                second = valid[0]
+
     return first, second
 
 

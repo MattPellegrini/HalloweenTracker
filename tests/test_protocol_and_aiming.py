@@ -262,6 +262,75 @@ class TwoTargetSelectionTests(unittest.TestCase):
         self.assertIsNone(first)
         self.assertEqual(second, nearest)
 
+    def test_targetless_behavior_track_remaining_fixed_slot(self):
+        t1 = (100, 1000, 0, 50)
+        t2 = (-500, 3000, 0, 50)
+        t3 = (200, 2000, 0, 50)
+
+        # 0 targets -> both None
+        first, second = choose_two_targets([None, None, None], 300, 6000,
+                                           "fixed_slot", "track_remaining")
+        self.assertIsNone(first)
+        self.assertIsNone(second)
+
+        # 1 target in slot 1 -> both track t1
+        first, second = choose_two_targets([t1, None, None], 300, 6000,
+                                           "fixed_slot", "track_remaining")
+        self.assertEqual(first, t1)
+        self.assertEqual(second, t1)
+
+        # 1 target in slot 2 -> both track t2
+        first, second = choose_two_targets([None, t2, None], 300, 6000,
+                                           "fixed_slot", "track_remaining")
+        self.assertEqual(first, t2)
+        self.assertEqual(second, t2)
+
+        # 1 target only in slot 3 -> both track t3
+        first, second = choose_two_targets([None, None, t3], 300, 6000,
+                                           "fixed_slot", "track_remaining")
+        self.assertEqual(first, t3)
+        self.assertEqual(second, t3)
+
+        # 2 targets in slots 1 & 2 -> each tracks their respective slot
+        first, second = choose_two_targets([t1, t2, None], 300, 6000,
+                                           "fixed_slot", "track_remaining")
+        self.assertEqual(first, t1)
+        self.assertEqual(second, t2)
+
+        # 2 targets in slots 1 & 3 (slot 2 empty) -> skull 1 gets t1, skull 2 picks up t3
+        first, second = choose_two_targets([t1, None, t3], 300, 6000,
+                                           "fixed_slot", "track_remaining")
+        self.assertEqual(first, t1)
+        self.assertEqual(second, t3)
+
+        # 2 targets in slots 2 & 3 (slot 1 empty) -> skull 2 gets t2, skull 1 picks up t3
+        first, second = choose_two_targets([None, t2, t3], 300, 6000,
+                                           "fixed_slot", "track_remaining")
+        self.assertEqual(first, t3)
+        self.assertEqual(second, t2)
+
+    def test_targetless_behavior_track_remaining_nearest_two(self):
+        far = (-2000, 4000, 0, 50)
+        nearest = (100, 1000, 0, 50)
+
+        # 0 targets -> both None
+        first, second = choose_two_targets([], 300, 6000,
+                                           "nearest_two", "track_remaining")
+        self.assertIsNone(first)
+        self.assertIsNone(second)
+
+        # 1 target -> both track nearest
+        first, second = choose_two_targets([nearest], 300, 6000,
+                                           "nearest_two", "track_remaining")
+        self.assertEqual(first, nearest)
+        self.assertEqual(second, nearest)
+
+        # 2 targets -> closest to 1, next closest to 2
+        first, second = choose_two_targets([far, nearest], 300, 6000,
+                                           "nearest_two", "track_remaining")
+        self.assertEqual(first, nearest)
+        self.assertEqual(second, far)
+
 
 class StepperTests(unittest.TestCase):
     def test_enable_pin_controlled_explicitly_not_toggled_during_motion(self):

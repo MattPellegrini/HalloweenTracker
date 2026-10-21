@@ -151,6 +151,14 @@ RMT_BURST_SLICE_MS = 15         # Non-blocking slice duration (ms) per RMT pulse
 #                   an empty slot parks that tracker.
 TARGET_ASSIGNMENT_MODE = "fixed_slot"
 
+# Behavior when a tracker has no target assigned:
+#   "track_remaining" - if one skull's target disappears (or only 1 target is
+#                       detected), both skulls track the remaining target.
+#                       Both rest only when no targets are detected.
+#   "rest"            - unassigned skulls park facing center with LEDs off.
+TARGETLESS_BEHAVIOR = "track_remaining"
+TARGETLESS_BEHAVIOUR = TARGETLESS_BEHAVIOR  # Support British/Commonwealth spelling
+
 # "assume" skips homing. Physically place each yaw axis at this angle before
 # power-up. Other modes stay locked out until homing code is implemented.
 POSITION_MODE = "assume"

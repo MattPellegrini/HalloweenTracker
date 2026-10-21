@@ -468,10 +468,14 @@ def main():
             now_ms = time.ticks_ms()
             if targets is not None:
                 # Assign radar targets to trackers (fixed_slot or nearest_two)
+                targetless_behavior = getattr(
+                    config, "TARGETLESS_BEHAVIOR",
+                    getattr(config, "TARGETLESS_BEHAVIOUR", "rest"))
                 assigned = choose_two_targets(targets,
                                               config.MIN_TARGET_RANGE_MM,
                                               config.MAX_TARGET_RANGE_MM,
-                                              config.TARGET_ASSIGNMENT_MODE)
+                                              config.TARGET_ASSIGNMENT_MODE,
+                                              targetless_behavior)
                 for tracker, target in zip(trackers, assigned):
                     tracker.on_radar_frame(target, now_ms)
 

@@ -561,9 +561,17 @@ class StepperTests(unittest.TestCase):
 
             axis.stop()
             self.assertFalse(axis.is_busy())
+            # RMT channel must remain active after stop so subsequent tracking moves can execute
+            self.assertTrue(fake_rmt.active())
+
+            # Verify motion can resume after stop
+            axis.set_target_degrees(10.0)
+            axis.run()
+            self.assertTrue(axis.is_busy())
 
             axis.deinit()
             self.assertTrue(fake_rmt.deinited)
+            self.assertFalse(fake_rmt.active())
             self.assertFalse(axis.enabled)
 
 
@@ -584,6 +592,11 @@ class TMC2209Tests(unittest.TestCase):
         hold_cs = current_cs_for_rms(390, 0.11, 0.325)
         self.assertEqual(run_cs, 13)
         self.assertEqual(hold_cs, 6)
+
+    def test_tpowerdown_packet_format(self):
+        packet = build_write_packet(0, 0x11, 10)
+        self.assertEqual(packet[:7], bytes((0x05, 0x00, 0x91, 0x00, 0x00, 0x00, 0x0a)))
+        self.assertEqual(packet[7], uart_crc(packet[:7]))
 
     def test_eye_indicator_colors_configured(self):
         self.assertEqual(config.EYE_OFF, (0, 0, 0))

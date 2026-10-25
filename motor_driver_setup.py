@@ -45,6 +45,9 @@ def configure_tracker_driver(driver, tracker_cfg):
         )
     )
 
+    tpowerdown_ifcnt = driver.configure_standstill_powerdown(10)
+    print("  TPOWERDOWN write accepted (standstill powerdown delay ~218 ms; IFCNT={})".format(tpowerdown_ifcnt))
+
     chopconf = driver.configure_microsteps(config.MICROSTEPS)
     print(
         "  Verified CHOPCONF=0x{:08x}; MRES configured for 1/{} microsteps".format(

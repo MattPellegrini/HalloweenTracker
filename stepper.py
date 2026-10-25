@@ -151,11 +151,6 @@ class StepperAxis:
                     self.rmt.wait_done()
                 except Exception:
                     pass
-            if hasattr(self.rmt, "active"):
-                try:
-                    self.rmt.active(False)
-                except Exception:
-                    pass
             self.completed_steps += self.burst_dir * self.burst_in_flight
             self.burst_in_flight = 0
         self.target_steps = self.completed_steps
@@ -164,6 +159,11 @@ class StepperAxis:
         """Release RMT peripheral and disable motor."""
         self.stop()
         if self.rmt is not None:
+            if hasattr(self.rmt, "active"):
+                try:
+                    self.rmt.active(False)
+                except Exception:
+                    pass
             try:
                 self.rmt.deinit()
             except Exception:

@@ -69,7 +69,8 @@ def configure_driver(driver, name, run_current_ma, hold_current_ma):
       2. GLOBALSCALER: Set to 0 (full 256/256 scale).
       3. IHOLD_IRUN: Set operating run current (RMS) and standby hold current (RMS).
          Verified via IFCNT (interface transmission counter).
-      4. CHOPCONF: Set MRES for 1/16 microstepping (3,200 steps/rev).
+      4. TPOWERDOWN: Set standstill delay before dropping to quiet IHOLD (~218 ms).
+      5. CHOPCONF: Set MRES for 1/16 microstepping (3,200 steps/rev).
     """
     gconf = driver.configure_uart_mode()
     scaler_ifcnt = driver.write_register_confirmed(REG_GLOBALSCALER, 0)
@@ -81,11 +82,14 @@ def configure_driver(driver, name, run_current_ma, hold_current_ma):
             config.TMC_VSENSE_VOLTS,
         )
     )
+    tpowerdown_ifcnt = driver.configure_standstill_powerdown(10)
     chopconf = driver.configure_microsteps(config.MICROSTEPS)
     print("{} GCONF=0x{:08x}; GLOBALSCALER IFCNT={}".
           format(name, gconf, scaler_ifcnt))
     print("{} IHOLD_IRUN=0x{:08x} accepted (IRUN={}, IHOLD={}, IFCNT={})".
           format(name, current_register, run_cs, hold_cs, current_ifcnt))
+    print("{} TPOWERDOWN configured (IFCNT={})".
+          format(name, tpowerdown_ifcnt))
     print("{} CHOPCONF=0x{:08x}; {} microsteps".
           format(name, chopconf, config.MICROSTEPS))
 
@@ -328,7 +332,11 @@ class Tracker:
         error_degrees = self.target_yaw - current_degrees
 
         # Evaluate deadband hysteresis to decide whether motor should move
-        if getattr(config, "ENABLE_DEADBAND", True):
+        if expired:
+            # When parking, drive cleanly to PARK_YAW_DEG without stopping short in deadband
+            self.moving = (round(current_degrees * self.axis.steps_per_degree) !=
+                           round(self.target_yaw * self.axis.steps_per_degree))
+        elif getattr(config, "ENABLE_DEADBAND", True):
             self.moving = update_deadband(
                 abs(error_degrees),
                 self.moving,
@@ -400,15 +408,14 @@ class Tracker:
                 self.axis.set_step_rate(desired_rate)
                 self.axis.set_target_degrees(self.target_yaw)
         else:
-            # Not moving: hold current position and reset rate to minimum floor
+            # Not moving: hold current position and reset rate to minimum floor.
+            # Stop pulse generation and align target with completed steps so the STEP
+            # line remains completely idle, allowing TMC2209 standstill to enter quiet IHOLD.
             self.desired_rate = config.MIN_TRACKING_STEP_RATE
             self.reversing = False
             self.current_motion_dir = 0
             self.axis.set_step_rate(config.MIN_TRACKING_STEP_RATE)
-            if getattr(config, "ENABLE_DEADBAND", True):
-                self.axis.target_steps = self.axis.position_steps
-            else:
-                self.axis.set_target_degrees(self.target_yaw)
+            self.axis.stop()
 
         # Coil energization: keep coils engaged continuously. TMC2209 automatically drops
         # to silent IHOLD current when stationary, locking position against wind/imbalance.

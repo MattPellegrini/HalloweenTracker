@@ -38,6 +38,7 @@ REG_IFCNT = 0x02         # Interface transmission counter (increments on valid w
 REG_IOIN = 0x06          # Direct pin inputs & driver silicon version
 REG_GLOBALSCALER = 0x0b  # Global current scaling (0 = 256/256 full scale)
 REG_IHOLD_IRUN = 0x10    # Standstill hold current & active run current
+REG_TPOWERDOWN = 0x11    # Standstill delay before power down to IHOLD (0..255)
 REG_CHOPCONF = 0x6c      # Chopper and microstep configuration (MRES)
 REG_DRV_STATUS = 0x6f    # Driver error flags, actual current scale, standstill flag
 
@@ -196,16 +197,26 @@ class TMC2209:
         raise last_error
 
     def configure_current(self, run_current_ma, hold_current_ma,
-                          sense_resistor_ohms=0.11, vsense_volts=0.325):
+                          sense_resistor_ohms=0.11, vsense_volts=0.325,
+                          hold_delay=2):
         """Set run and hold current scale registers and verify via IFCNT."""
         run_cs = current_cs_for_rms(run_current_ma, sense_resistor_ohms,
                                     vsense_volts)
         hold_cs = current_cs_for_rms(hold_current_ma, sense_resistor_ohms,
                                      vsense_volts)
-        hold_delay = 8  # Delay cycles before dropping from IRUN to IHOLD on standstill
+        # hold_delay: delay cycles before dropping from IRUN to IHOLD on standstill
         value = (hold_delay << 16) | (run_cs << 8) | hold_cs
         ifcnt = self.write_register_confirmed(REG_IHOLD_IRUN, value)
         return run_cs, hold_cs, value, ifcnt
+
+    def configure_standstill_powerdown(self, powerdown_delay=10):
+        """Configure TPOWERDOWN delay before dropping current to IHOLD.
+
+        powerdown_delay: 0..255. Approximately 21.8 ms per unit at 12 MHz clock.
+        Default 10 = ~218 ms delay after standstill detection before power down.
+        """
+        clamped = max(0, min(255, int(powerdown_delay)))
+        return self.write_register_confirmed(REG_TPOWERDOWN, clamped)
 
     def configure_uart_mode(self):
         """Configure GCONF for UART control and verify with readback."""

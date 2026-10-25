@@ -82,6 +82,7 @@ def configure_tmc_drivers():
                 config.TMC_SENSE_RESISTOR_OHMS,
                 config.TMC_VSENSE_VOLTS,
             )
+            driver.configure_standstill_powerdown(10)
             driver.configure_microsteps(config.MICROSTEPS)
             drivers[tracker_cfg["name"]] = driver
             print(

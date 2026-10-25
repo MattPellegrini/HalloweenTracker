@@ -62,21 +62,21 @@ TRACKERS = (
         "yaw_min_deg": MIN_YAW_DEG,
         "yaw_max_deg": MAX_YAW_DEG,
     },
-    {
-        "name": "Tracker 2",
-        "step_pin": 18,
-        "dir_pin": 19,
-        "enable_pin": 21,
-        "eyes_pin": 14,
-        "tmc_address": 1,
-        "direction_inverted": False,
-        "run_current_ma": 770,
-        "hold_current_ma": 390,
-        "yaw_pivot_x_mm": 0.0,
-        "yaw_pivot_y_mm": 0.0,
-        "yaw_min_deg": MIN_YAW_DEG,
-        "yaw_max_deg": MAX_YAW_DEG,
-    },
+    # {
+    #     "name": "Tracker 2",
+    #     "step_pin": 18,
+    #     "dir_pin": 19,
+    #     "enable_pin": 21,
+    #     "eyes_pin": 14,
+    #     "tmc_address": 1,
+    #     "direction_inverted": False,
+    #     "run_current_ma": 770,
+    #     "hold_current_ma": 390,
+    #     "yaw_pivot_x_mm": 0.0,
+    #     "yaw_pivot_y_mm": 0.0,
+    #     "yaw_min_deg": MIN_YAW_DEG,
+    #     "yaw_max_deg": MAX_YAW_DEG,
+    # },
     # Tracker 3 reference configuration (commented out until physical 3rd skull is wired):
     # {
     #     "name": "Tracker 3",
@@ -113,23 +113,26 @@ FULL_STEPS_PER_REVOLUTION = 200
 # motion with resonance-free coil micro-stepping.
 MICROSTEPS = 16
 # Hardware RMT generates step pulses with zero CPU bit-banging overhead.
-# 2800 pps (~315 deg/s or ~0.88 rev/s at 1/16) provides responsive tracking
-# without violent swinging when acquiring or losing targets across large angles.
-MAX_STEP_RATE = 2800
+# Note on speeds:
+#   For tabletop / unmounted testing with a loose motor base, 900 pps (~101 deg/s)
+#   and 4500 pps/s^2 acceleration prevent the skull from nearly tipping over.
+#   When firmly mounted to a rigid prop base, these can safely be increased
+#   (e.g., MAX_STEP_RATE = 2400-2800, TRACKING_STEP_RATE_SLEW_PPS_S = 18000-22000).
+MAX_STEP_RATE = 900             # Max step rate (900 pps is ~101 deg/s at 1/16; stable unmounted)
 MIN_TRACKING_STEP_RATE = 25     # Floor step rate while moving (avoids crawl/resonance)
 
 # Micro-hysteresis deadband:
-# Widened to 1.2 deg start / 0.4 deg stop to absorb LD2450 sensor noise and
+# Widened to 1.5 deg start / 0.5 deg stop to absorb LD2450 sensor noise and
 # target breathing fluctuations without jittering back and forth at rest.
-TRACKING_DEADBAND_START_DEG = 1.2
-TRACKING_DEADBAND_STOP_DEG = 0.4
+TRACKING_DEADBAND_START_DEG = 1.5
+TRACKING_DEADBAND_STOP_DEG = 0.5
 
 # Speed shaping and feed-forward parameters:
-TRACKING_FULL_SPEED_ERROR_DEG = 22.0     # Pointing error (deg) at which speed reaches MAX_STEP_RATE
+TRACKING_FULL_SPEED_ERROR_DEG = 20.0     # Pointing error (deg) at which speed reaches MAX_STEP_RATE
 TRACKING_ERROR_SPEED_EXPONENT = 1.1       # Exponent for error-to-speed curve (near-linear = snappier catchup)
 TRACKING_FEEDFORWARD_GAIN = 0.85          # Target velocity feed-forward gain (pacing moving targets)
 TRACKING_FEEDFORWARD_MIN_ERROR_DEG = 1.8  # Error threshold (deg) before feed-forward activates
-TRACKING_STEP_RATE_SLEW_PPS_S = 22000     # Max acceleration/deceleration rate (pulses/s^2)
+TRACKING_STEP_RATE_SLEW_PPS_S = 4500      # Max acceleration/deceleration rate (pulses/s^2; safe unmounted)
 TRACKING_RATE_FILTER_ALPHA = 0.35         # Low-pass filter weight for target angular rate estimation
 TRACKING_TARGET_SMOOTHING_MS = 150        # Time constant (ms) for exponential target angle smoothing
 MAX_TRACKING_BEARING_RATE_DEG_S = 90.0    # Clamp on target angular speed to reject sensor noise jumps

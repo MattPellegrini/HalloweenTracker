@@ -374,8 +374,13 @@ class Tracker:
             self.set_eye_color(eye_rgb)
 
         if self.moving:
-            # Calculate desired step rate via error-shaping curve + feed-forward
-            if getattr(config, "ENABLE_SPEED_SHAPING", True):
+            # Calculate desired step rate:
+            # - When expired (parking): slow reluctant return rate (PARK_STEP_RATE)
+            # - When tracking active target: velocity-shaped curve up to MAX_STEP_RATE
+            if expired:
+                desired_rate = getattr(config, "PARK_STEP_RATE", 250)
+                max_slew = getattr(config, "PARK_STEP_RATE_SLEW_PPS_S", 1000)
+            elif getattr(config, "ENABLE_SPEED_SHAPING", True):
                 desired_rate = tracking_step_rate(
                     error_degrees,
                     self.filtered_yaw_rate,
@@ -388,8 +393,10 @@ class Tracker:
                     config.TRACKING_FEEDFORWARD_GAIN,
                     getattr(config, "TRACKING_FEEDFORWARD_MIN_ERROR_DEG", 3.0),
                 )
+                max_slew = config.TRACKING_STEP_RATE_SLEW_PPS_S
             else:
                 desired_rate = getattr(config, "TRACKING_BASE_STEP_RATE", 400)
+                max_slew = config.TRACKING_STEP_RATE_SLEW_PPS_S
             self.desired_rate = desired_rate
 
             # Apply acceleration/deceleration slew rate limiting
@@ -404,7 +411,7 @@ class Tracker:
                     rate = slew_step_rate(self.axis.step_rate,
                                           config.MIN_TRACKING_STEP_RATE,
                                           elapsed_ms,
-                                          config.TRACKING_STEP_RATE_SLEW_PPS_S)
+                                          max_slew)
                     self.axis.set_step_rate(rate)
                     self.axis.set_target_degrees(
                         (self.axis.position_steps / self.axis.steps_per_degree) +
@@ -414,7 +421,7 @@ class Tracker:
                     self.current_motion_dir = desired_dir
                     rate = slew_step_rate(self.axis.step_rate, desired_rate,
                                           elapsed_ms,
-                                          config.TRACKING_STEP_RATE_SLEW_PPS_S)
+                                          max_slew)
                     self.axis.set_step_rate(rate)
                     self.axis.set_target_degrees(self.target_yaw)
             else:

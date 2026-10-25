@@ -120,12 +120,14 @@ FULL_STEPS_PER_REVOLUTION = 200
 MICROSTEPS = 16
 # Hardware RMT generates step pulses with zero CPU bit-banging overhead.
 # Note on speeds:
-#   For tabletop / unmounted testing with a loose motor base, 900 pps (~101 deg/s)
-#   and 4500 pps/s^2 acceleration prevent the skull from nearly tipping over.
-#   When firmly mounted to a rigid prop base, these can safely be increased
-#   (e.g., MAX_STEP_RATE = 2400-2800, TRACKING_STEP_RATE_SLEW_PPS_S = 18000-22000).
-MAX_STEP_RATE = 900             # Max step rate (900 pps is ~101 deg/s at 1/16; stable unmounted)
+#   At 1/16 microstepping (3200 steps/rev), 1778 pps is ~200 deg/s.
+#   Acceleration of 14000 pps/s^2 ramps from rest to full 200 deg/s in ~0.13 s.
+#   When returning to park after target loss, PARK_STEP_RATE and PARK_STEP_RATE_SLEW_PPS_S
+#   provide a slow, reluctant return to rest.
+MAX_STEP_RATE = 1778            # Max active tracking step rate (1778 pps is ~200 deg/s at 1/16)
 MIN_TRACKING_STEP_RATE = 25     # Floor step rate while moving (avoids crawl/resonance)
+PARK_STEP_RATE = 250            # Slow, reluctant return rate when target lost (~28 deg/s)
+PARK_STEP_RATE_SLEW_PPS_S = 1000  # Acceleration/deceleration rate for gentle park return (pulses/s^2)
 
 # Micro-hysteresis deadband:
 # Widened to 1.5 deg start / 0.5 deg stop to absorb LD2450 sensor noise and
@@ -138,7 +140,7 @@ TRACKING_FULL_SPEED_ERROR_DEG = 20.0     # Pointing error (deg) at which speed r
 TRACKING_ERROR_SPEED_EXPONENT = 1.1       # Exponent for error-to-speed curve (near-linear = snappier catchup)
 TRACKING_FEEDFORWARD_GAIN = 0.85          # Target velocity feed-forward gain (pacing moving targets)
 TRACKING_FEEDFORWARD_MIN_ERROR_DEG = 1.8  # Error threshold (deg) before feed-forward activates
-TRACKING_STEP_RATE_SLEW_PPS_S = 4500      # Max acceleration/deceleration rate (pulses/s^2; safe unmounted)
+TRACKING_STEP_RATE_SLEW_PPS_S = 14000     # Max acceleration/deceleration rate (pulses/s^2; ~1575 deg/s^2)
 TRACKING_RATE_FILTER_ALPHA = 0.35         # Low-pass filter weight for target angular rate estimation
 TRACKING_TARGET_SMOOTHING_MS = 150        # Time constant (ms) for exponential target angle smoothing
 MAX_TRACKING_BEARING_RATE_DEG_S = 90.0    # Clamp on target angular speed to reject sensor noise jumps

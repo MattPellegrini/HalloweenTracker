@@ -211,6 +211,15 @@ class TargetSelectorTests(unittest.TestCase):
         self.assertEqual(slew_step_rate(100, 180, 50, 2400), 180)
         self.assertEqual(slew_step_rate(100, 800, 0, 2400), 100)
 
+    def test_motion_speed_and_park_return_configuration(self):
+        # 1778 pps is ~200 deg/s at 1/16 microstepping (3200 steps/rev)
+        self.assertEqual(config.MAX_STEP_RATE, 1778)
+        self.assertEqual(config.TRACKING_STEP_RATE_SLEW_PPS_S, 14000)
+        # Park return is intentionally slow and reluctant
+        self.assertLess(config.PARK_STEP_RATE, config.MAX_STEP_RATE)
+        self.assertEqual(config.PARK_STEP_RATE, 250)
+        self.assertEqual(config.PARK_STEP_RATE_SLEW_PPS_S, 1000)
+
     def test_target_smoothing_glides_between_measurements(self):
         self.assertEqual(smooth_toward_target(None, 10.0, 40, 120), 10.0)
         self.assertAlmostEqual(smooth_toward_target(0.0, 12.0, 60, 120), 6.0)

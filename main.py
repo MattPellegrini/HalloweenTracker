@@ -13,9 +13,9 @@ from aiming import clamp, solve_yaw
 from ld2450 import LD2450Reader
 from stepper import StepperAxis
 from tmc2209 import REG_GLOBALSCALER, REG_IOIN, TMC2209
-from tracking import (assign_targets, choose_two_targets, slew_step_rate,
-                      smooth_toward_target, tracking_step_rate,
-                      update_deadband)
+from tracking import (assign_targets, choose_two_targets, eye_target_hue,
+                      hsv_to_rgb, slew_step_rate, smooth_toward_target,
+                      tracking_step_rate, update_deadband)
 
 
 def set_eyes(eyes, color):
@@ -118,6 +118,7 @@ class Tracker:
         self.eyes = neopixel.NeoPixel(Pin(tracker_cfg["eyes_pin"]),
                                       config.NEOPIXEL_COUNT)
         self.eye_color = None
+        self.current_hue = None
         self.set_eye_color(config.EYE_OFF)
 
         # Prop geometry: position of this motor's yaw axis relative to the radar.
@@ -288,6 +289,7 @@ class Tracker:
             self.filtered_yaw_rate = 0.0
             self.smoothed_yaw = config.PARK_YAW_DEG
             self.target_yaw = config.PARK_YAW_DEG
+            self.current_hue = None
             self.set_eye_color(config.EYE_OFF)
             if self.awake:
                 self.awake = False
@@ -352,11 +354,24 @@ class Tracker:
 
         # Update eye LEDs based on state:
         # - OFF when idle/lost
-        # - Orange/Amber while actively moving/slewing toward target
-        # - Red when locked/settled on target
+        # - Smooth HSV gradient when awake: hue rotates from seeking (warm amber)
+        #   to locked (subdued red) as pointing error approaches 0.
         if self.awake:
-            eye_color = config.EYE_TRACKING if self.moving else config.EYE_LOCKED
-            self.set_eye_color(eye_color)
+            target_hue = eye_target_hue(
+                error_degrees,
+                getattr(config, "EYE_SEEKING_HUE_DEG", 25.0),
+                getattr(config, "EYE_SEEKING_ERROR_DEG", 15.0),
+            )
+            smoothing_ms = getattr(config, "EYE_COLOR_SMOOTHING_MS", 250)
+            if self.current_hue is None:
+                self.current_hue = target_hue
+            else:
+                self.current_hue = smooth_toward_target(
+                    self.current_hue, target_hue, elapsed_ms, smoothing_ms
+                )
+            brightness = getattr(config, "EYE_BRIGHTNESS", 180)
+            eye_rgb = hsv_to_rgb(self.current_hue, 1.0, brightness)
+            self.set_eye_color(eye_rgb)
 
         if self.moving:
             # Calculate desired step rate via error-shaping curve + feed-forward
@@ -428,6 +443,7 @@ class Tracker:
     def shutdown(self):
         """Release hardware peripherals, turn off eye LEDs, and disable coils."""
         self.axis.deinit()
+        self.current_hue = None
         self.set_eye_color(config.EYE_OFF)
 
 

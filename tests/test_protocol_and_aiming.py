@@ -10,7 +10,8 @@ from tmc2209 import (REG_IOIN, TMC2209, build_read_packet, build_write_packet,
                      current_cs_for_rms, gconf_for_uart, uart_crc)
 from stepper import StepperAxis
 from tracking import (TargetSelector, assign_targets, choose_two_targets,
-                      slew_step_rate, smooth_toward_target, tracking_step_rate,
+                      eye_target_hue, hsv_to_rgb, slew_step_rate,
+                      smooth_toward_target, tracking_step_rate,
                       update_deadband)
 
 
@@ -603,6 +604,30 @@ class TMC2209Tests(unittest.TestCase):
         self.assertNotEqual(config.EYE_TRACKING, config.EYE_OFF)
         self.assertNotEqual(config.EYE_LOCKED, config.EYE_OFF)
         self.assertNotEqual(config.EYE_TRACKING, config.EYE_LOCKED)
+        self.assertEqual(config.EYE_LOCKED, (180, 0, 0))
+        self.assertEqual(config.EYE_TRACKING, (180, 75, 0))
+
+    def test_hsv_to_rgb_conversion(self):
+        # Pure red
+        self.assertEqual(hsv_to_rgb(0.0, 1.0, 180), (180, 0, 0))
+        # Warm amber
+        self.assertEqual(hsv_to_rgb(25.0, 1.0, 180), (180, 75, 0))
+        # Off
+        self.assertEqual(hsv_to_rgb(0.0, 0.0, 0), (0, 0, 0))
+        # Zero saturation gives greyscale
+        self.assertEqual(hsv_to_rgb(180.0, 0.0, 100), (100, 100, 100))
+
+    def test_eye_target_hue_mapping(self):
+        # Zero error produces pure red (0 deg)
+        self.assertEqual(eye_target_hue(0.0, 25.0, 15.0), 0.0)
+        # Half error produces mid-hue (12.5 deg)
+        self.assertAlmostEqual(eye_target_hue(7.5, 25.0, 15.0), 12.5)
+        # Negative error magnitude works identically
+        self.assertAlmostEqual(eye_target_hue(-7.5, 25.0, 15.0), 12.5)
+        # Saturation at full seeking error
+        self.assertEqual(eye_target_hue(15.0, 25.0, 15.0), 25.0)
+        # Clamped beyond full seeking error
+        self.assertEqual(eye_target_hue(45.0, 25.0, 15.0), 25.0)
 
     def test_gconf_selects_uart_scaling_and_register_microsteps(self):
         self.assertEqual(gconf_for_uart(0x201), 0x2c0)

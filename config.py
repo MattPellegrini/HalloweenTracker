@@ -97,9 +97,15 @@ TRACKERS = (
 
 # NeoPixel WS2812B eye indicators
 NEOPIXEL_COUNT = 2              # Number of LEDs per tracker (one per eye/indicator socket)
-EYE_TRACKING = (255, 120, 0)    # Amber/orange while actively slewing toward target
-EYE_LOCKED = (255, 0, 0)        # Red when target is settled / locked in deadband
+EYE_BRIGHTNESS = 180            # Peak eye brightness (0..255; 180 is rich without washing out)
+EYE_LOCKED_HUE_DEG = 0.0        # Hue (deg) when locked on target (0.0 = Red)
+EYE_SEEKING_HUE_DEG = 25.0      # Hue (deg) when seeking target at large angles (25.0 = warm amber/orange)
+EYE_SEEKING_ERROR_DEG = 15.0    # Pointing error (deg) at which eye color reaches full seeking hue
+EYE_COLOR_SMOOTHING_MS = 250    # Time constant (ms) for exponential eye color smoothing
+
 EYE_OFF = (0, 0, 0)             # Off when sleeping / idle / target lost
+EYE_LOCKED = (EYE_BRIGHTNESS, 0, 0)  # Subdued red when target is settled / locked in deadband
+EYE_TRACKING = (EYE_BRIGHTNESS, int(round(EYE_BRIGHTNESS * (EYE_SEEKING_HUE_DEG / 60.0))), 0)  # Warm amber (180, 75, 0)
 EYE_RED = EYE_LOCKED            # Backward-compatible alias for EYE_LOCKED
 
 # TMC2209 driver sensing parameters (used to compute current scale registers)

@@ -184,6 +184,51 @@ def smooth_toward_target(current, target, elapsed_ms, smoothing_ms):
     return current + (target - current) * alpha
 
 
+def hsv_to_rgb(h_deg, s, v):
+    """Convert HSV (h in 0..360, s in 0..1, v in 0..255) to integer (r, g, b) tuple in 0..255.
+
+    Uses standard color wheel math suitable for MicroPython without colorsys imports.
+    """
+    v_clamped = max(0.0, min(255.0, float(v)))
+    s_clamped = max(0.0, min(1.0, float(s)))
+    if s_clamped <= 0.0 or v_clamped <= 0.0:
+        val = int(round(v_clamped))
+        return val, val, val
+    h = (float(h_deg) % 360.0) / 60.0
+    i = int(h)
+    f = h - i
+    p = v_clamped * (1.0 - s_clamped)
+    q = v_clamped * (1.0 - s_clamped * f)
+    t = v_clamped * (1.0 - s_clamped * (1.0 - f))
+    if i == 0:
+        r, g, b = v_clamped, t, p
+    elif i == 1:
+        r, g, b = q, v_clamped, p
+    elif i == 2:
+        r, g, b = p, v_clamped, t
+    elif i == 3:
+        r, g, b = p, q, v_clamped
+    elif i == 4:
+        r, g, b = t, p, v_clamped
+    else:
+        r, g, b = v_clamped, p, q
+    return int(round(r)), int(round(g)), int(round(b))
+
+
+def eye_target_hue(error_degrees, seeking_hue_deg=25.0, full_seeking_error_deg=15.0):
+    """Calculate target eye hue (deg) based on pointing error magnitude.
+
+    Maps pointing error |error_degrees| to hue:
+      - At zero error (settled/locked on target): returns 0.0 deg (Red).
+      - At >= full_seeking_error_deg: saturates at seeking_hue_deg (Warm Amber/Orange).
+      - In between: linear rotation between Red and Amber.
+    """
+    if full_seeking_error_deg <= 0.0:
+        return 0.0
+    normalized_error = min(1.0, max(0.0, abs(error_degrees) / full_seeking_error_deg))
+    return normalized_error * seeking_hue_deg
+
+
 def update_deadband(error_degrees, active, start_degrees, stop_degrees):
     """Apply dual-threshold start/stop hysteresis.
 

@@ -97,8 +97,10 @@ TRACKERS = (
 
 # NeoPixel WS2812B eye indicators
 NEOPIXEL_COUNT = 2              # Number of LEDs per tracker (one per eye/indicator socket)
-EYE_RED = (255, 0, 0)          # Eye color when actively tracking a target
-EYE_OFF = (0, 0, 0)            # Eye color when sleeping / idle / target lost
+EYE_TRACKING = (255, 120, 0)    # Amber/orange while actively slewing toward target
+EYE_LOCKED = (255, 0, 0)        # Red when target is settled / locked in deadband
+EYE_OFF = (0, 0, 0)             # Off when sleeping / idle / target lost
+EYE_RED = EYE_LOCKED            # Backward-compatible alias for EYE_LOCKED
 
 # TMC2209 driver sensing parameters (used to compute current scale registers)
 TMC_SENSE_RESISTOR_OHMS = 0.11  # Current sense resistor on BTT V1.3 (R110 = 0.11 Ohm)

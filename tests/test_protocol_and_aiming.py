@@ -585,6 +585,12 @@ class TMC2209Tests(unittest.TestCase):
         self.assertEqual(run_cs, 13)
         self.assertEqual(hold_cs, 6)
 
+    def test_eye_indicator_colors_configured(self):
+        self.assertEqual(config.EYE_OFF, (0, 0, 0))
+        self.assertNotEqual(config.EYE_TRACKING, config.EYE_OFF)
+        self.assertNotEqual(config.EYE_LOCKED, config.EYE_OFF)
+        self.assertNotEqual(config.EYE_TRACKING, config.EYE_LOCKED)
+
     def test_gconf_selects_uart_scaling_and_register_microsteps(self):
         self.assertEqual(gconf_for_uart(0x201), 0x2c0)
 

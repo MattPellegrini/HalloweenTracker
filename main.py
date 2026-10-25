@@ -113,7 +113,8 @@ class Tracker:
         # Eye/status illumination (WS2812B NeoPixel chain):
         self.eyes = neopixel.NeoPixel(Pin(tracker_cfg["eyes_pin"]),
                                       config.NEOPIXEL_COUNT)
-        set_eyes(self.eyes, config.EYE_OFF)
+        self.eye_color = None
+        self.set_eye_color(config.EYE_OFF)
 
         # Prop geometry: position of this motor's yaw axis relative to the radar.
         # (+X = sensor left, +Y = forward into detection zone)
@@ -200,6 +201,14 @@ class Tracker:
         # current pointing error and target bearing speed.
         self.desired_rate = config.MIN_TRACKING_STEP_RATE
 
+    def set_eye_color(self, color):
+        """Update eye LEDs only when color changes to avoid blocking WS2812B writes."""
+        if self.eye_color != color:
+            self.eye_color = color
+            for index in range(config.NEOPIXEL_COUNT):
+                self.eyes[index] = color
+            self.eyes.write()
+
     def on_radar_frame(self, target, now_ms):
         """Record this tracker's assigned target from the latest radar frame.
 
@@ -275,8 +284,8 @@ class Tracker:
             self.filtered_yaw_rate = 0.0
             self.smoothed_yaw = config.PARK_YAW_DEG
             self.target_yaw = config.PARK_YAW_DEG
+            self.set_eye_color(config.EYE_OFF)
             if self.awake:
-                set_eyes(self.eyes, config.EYE_OFF)
                 self.awake = False
                 print("{}: target lost; returning to park.".format(self.name))
         else:
@@ -294,7 +303,6 @@ class Tracker:
                 self.last_raw_yaw = target_yaw
 
             if not self.awake:
-                set_eyes(self.eyes, config.EYE_RED)
                 self.awake = True
                 print("{}: target acquired x={} y={} mm; yaw={:.1f} deg".
                       format(self.name, x_mm, y_mm, target_yaw))
@@ -333,6 +341,14 @@ class Tracker:
             # Without deadband: move whenever position differs from target
             self.moving = (self.axis.position_steps !=
                            round(self.target_yaw * self.axis.steps_per_degree))
+
+        # Update eye LEDs based on state:
+        # - OFF when idle/lost
+        # - Orange/Amber while actively moving/slewing toward target
+        # - Red when locked/settled on target
+        if self.awake:
+            eye_color = config.EYE_TRACKING if self.moving else config.EYE_LOCKED
+            self.set_eye_color(eye_color)
 
         if self.moving:
             # Calculate desired step rate via error-shaping curve + feed-forward
@@ -405,7 +421,7 @@ class Tracker:
     def shutdown(self):
         """Release hardware peripherals, turn off eye LEDs, and disable coils."""
         self.axis.deinit()
-        set_eyes(self.eyes, config.EYE_OFF)
+        self.set_eye_color(config.EYE_OFF)
 
 
 def main():

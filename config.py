@@ -101,22 +101,23 @@ NEOPIXEL_COUNT = 2              # Number of LEDs per tracker (one per eye/indica
 # Eye colors (RGB):
 # - EYE_ASLEEP: Dimmest visible purple when sleeping / idle / target lost (1 PWM red, 2 PWM blue)
 # - EYE_SEEKING: Ghostly green-blue (Minas Morgul spectral cyan-green) while hunting for target
-# - EYE_LOCKED: Fiery red-orange when locked on target
+# - EYE_LOCKED: Deep blood red (almost pure red with a touch of warm orange) when locked on target
 EYE_ASLEEP = (1, 0, 2)          # Dimmest possible purple
 EYE_OFF = EYE_ASLEEP            # Backward-compatible alias for sleeping / idle eyes
 EYE_SEEKING = (0, 160, 130)     # Ghostly green-blue (Minas Morgul)
 EYE_TRACKING = EYE_SEEKING      # Backward-compatible alias for EYE_SEEKING
-EYE_LOCKED = (180, 45, 0)       # Fiery red-orange
+EYE_LOCKED = (180, 6, 0)        # Deep red with subtle warm hint
 EYE_RED = EYE_LOCKED            # Backward-compatible alias for EYE_LOCKED
 
 # Eye lock hysteresis thresholds (dual-threshold state machine to prevent color flicker):
-# - Enters locked state (red-orange) when pointing error drops within EYE_LOCK_ENTER_DEG (2.0 deg).
-# - Remains locked during minor tracking adjustments until error exceeds EYE_LOCK_EXIT_DEG (8.0 deg),
-#   allowing the skull to move slightly without breaking lock or flickering colors.
-# - If error exceeds EYE_LOCK_EXIT_DEG, returns to seeking (ghostly green-blue).
+# - Enters locked state (deep red) when pointing error drops within EYE_LOCK_ENTER_DEG (1.0 deg).
+# - Remains locked during minor tracking adjustments until error exceeds EYE_LOCK_EXIT_DEG (3.0 deg,
+#   2x TRACKING_DEADBAND_START_DEG), allowing the skull to settle and adjust slightly without flicker.
+# - If error (including unsmoothed raw radar angle error) exceeds EYE_LOCK_EXIT_DEG, returns to
+#   seeking (ghostly green-blue).
 # - If target is lost (> TARGET_LOST_MS), returns to asleep (dimmest purple).
-EYE_LOCK_ENTER_DEG = 2.0        # Error threshold (deg) to acquire lock (switches to red-orange)
-EYE_LOCK_EXIT_DEG = 8.0         # Error threshold (deg) to lose lock (returns to seeking green-blue)
+EYE_LOCK_ENTER_DEG = 1.0        # Error threshold (deg) to acquire lock (switches to deep red)
+EYE_LOCK_EXIT_DEG = 3.0         # Error threshold (deg) to lose lock (returns to seeking green-blue)
 EYE_COLOR_SMOOTHING_MS = 250    # Time constant (ms) for exponential eye color transitions
 
 # TMC2209 driver sensing parameters (used to compute current scale registers)

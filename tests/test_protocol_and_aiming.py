@@ -613,40 +613,42 @@ class TMC2209Tests(unittest.TestCase):
         self.assertEqual(config.EYE_OFF, config.EYE_ASLEEP)
         self.assertEqual(config.EYE_SEEKING, (0, 160, 130))
         self.assertEqual(config.EYE_TRACKING, config.EYE_SEEKING)
-        self.assertEqual(config.EYE_LOCKED, (180, 45, 0))
+        self.assertEqual(config.EYE_LOCKED, (180, 6, 0))
+        self.assertEqual(config.EYE_LOCK_ENTER_DEG, 1.0)
+        self.assertEqual(config.EYE_LOCK_EXIT_DEG, 3.0)
         self.assertNotEqual(config.EYE_SEEKING, config.EYE_LOCKED)
         self.assertNotEqual(config.EYE_SEEKING, config.EYE_ASLEEP)
         self.assertNotEqual(config.EYE_LOCKED, config.EYE_ASLEEP)
 
     def test_lock_hysteresis_prevents_flicker(self):
-        enter_deg = 2.0
-        exit_deg = 8.0
+        enter_deg = config.EYE_LOCK_ENTER_DEG
+        exit_deg = config.EYE_LOCK_EXIT_DEG
         # Start unlocked (seeking) at 15 deg error
         locked = False
         locked = update_lock_hysteresis(15.0, locked, enter_deg, exit_deg)
         self.assertFalse(locked)
-        # Moving closer (5 deg) stays unlocked because > enter_deg
-        locked = update_lock_hysteresis(5.0, locked, enter_deg, exit_deg)
+        # Moving closer (2.0 deg) stays unlocked because > enter_deg (1.0 deg)
+        locked = update_lock_hysteresis(2.0, locked, enter_deg, exit_deg)
         self.assertFalse(locked)
-        # Entering lock zone (<= 2.0 deg) acquires lock
+        # Entering lock zone (<= 1.0 deg) acquires lock
+        locked = update_lock_hysteresis(0.8, locked, enter_deg, exit_deg)
+        self.assertTrue(locked)
+        # Small tracking adjustments (e.g. 1.8 deg, -2.5 deg) keep lock without flickering
         locked = update_lock_hysteresis(1.8, locked, enter_deg, exit_deg)
         self.assertTrue(locked)
-        # Small tracking adjustments (e.g. 4.0 deg, -6.5 deg) keep lock without flickering
-        locked = update_lock_hysteresis(4.0, locked, enter_deg, exit_deg)
+        locked = update_lock_hysteresis(-2.5, locked, enter_deg, exit_deg)
         self.assertTrue(locked)
-        locked = update_lock_hysteresis(-6.5, locked, enter_deg, exit_deg)
-        self.assertTrue(locked)
-        # Moving past exit_deg (> 8.0 deg) breaks lock back to seeking
-        locked = update_lock_hysteresis(8.5, locked, enter_deg, exit_deg)
+        # Moving past exit_deg (> 3.0 deg) breaks lock back to seeking
+        locked = update_lock_hysteresis(3.2, locked, enter_deg, exit_deg)
         self.assertFalse(locked)
 
     def test_smooth_color_blending(self):
         start = [0.0, 160.0, 130.0]
-        target = (180, 45, 0)
+        target = (180, 6, 0)
         # Half time constant step (125 ms / 250 ms -> alpha = 0.5)
         mid = smooth_color(start, target, 125, 250)
         self.assertAlmostEqual(mid[0], 90.0)
-        self.assertAlmostEqual(mid[1], 102.5)
+        self.assertAlmostEqual(mid[1], 83.0)
         self.assertAlmostEqual(mid[2], 65.0)
         # Seeded from None jumps directly to target
         seeded = smooth_color(None, (1, 0, 2), 20, 250)

@@ -356,16 +356,24 @@ class Tracker:
         # Update eye LEDs using dual-threshold lock hysteresis:
         # - Asleep (dimmest purple) when idle / target lost
         # - Seeking (ghostly green-blue / Minas Morgul) when hunting a target
-        # - Locked (red-orange) when error drops within EYE_LOCK_ENTER_DEG (2.0 deg),
-        #   holding lock during minor movements until error exceeds EYE_LOCK_EXIT_DEG (8.0 deg).
+        # - Locked (deep red) when error drops within EYE_LOCK_ENTER_DEG (1.0 deg),
+        #   holding lock during minor movements until error exceeds EYE_LOCK_EXIT_DEG (3.0 deg).
+        # Compare against the larger of smoothed and raw target error so sudden target
+        # movement breaks lock immediately before the target-angle smoother catches up.
         if not self.awake:
             target_eye_rgb = getattr(config, "EYE_ASLEEP", config.EYE_OFF)
         else:
+            raw_error_degrees = (
+                (self.last_raw_yaw - current_degrees)
+                if self.last_raw_yaw is not None
+                else error_degrees
+            )
+            lock_error_degrees = max(abs(error_degrees), abs(raw_error_degrees))
             self.target_locked = update_lock_hysteresis(
-                error_degrees,
+                lock_error_degrees,
                 self.target_locked,
-                getattr(config, "EYE_LOCK_ENTER_DEG", 2.0),
-                getattr(config, "EYE_LOCK_EXIT_DEG", 8.0),
+                getattr(config, "EYE_LOCK_ENTER_DEG", 1.0),
+                getattr(config, "EYE_LOCK_EXIT_DEG", 3.0),
             )
             if self.target_locked:
                 target_eye_rgb = config.EYE_LOCKED

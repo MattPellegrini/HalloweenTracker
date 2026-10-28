@@ -229,6 +229,54 @@ def eye_target_hue(error_degrees, seeking_hue_deg=25.0, full_seeking_error_deg=1
     return normalized_error * seeking_hue_deg
 
 
+def update_lock_hysteresis(error_degrees, locked, enter_degrees, exit_degrees):
+    """Apply dual-threshold hysteresis for target lock state (e.g. eye color).
+
+    Hysteresis behavior:
+      - If currently locked (locked=True): remains locked until pointing error
+        strictly exceeds exit_degrees (e.g. 8.0 deg), allowing the tracker to move
+        and make minor adjustments while staying locked on.
+      - If currently seeking (locked=False): only acquires lock when pointing error
+        drops below or equal to enter_degrees (e.g. 2.0 deg).
+
+    Parameters:
+      error_degrees: Absolute or signed pointing error in degrees.
+      locked: Current lock boolean state.
+      enter_degrees: Maximum error threshold to acquire lock (deg).
+      exit_degrees: Error threshold above which lock is broken (deg).
+
+    Returns:
+      Updated boolean lock state.
+    """
+    err = abs(error_degrees)
+    if locked:
+        return err <= max(enter_degrees, exit_degrees)
+    return err <= enter_degrees
+
+
+def smooth_color(current_rgb, target_rgb, elapsed_ms, smoothing_ms):
+    """Exponentially blend an RGB tuple toward target_rgb over smoothing_ms.
+
+    Parameters:
+      current_rgb: (r, g, b) tuple or list of current color channels (float or int), or None.
+      target_rgb: (r, g, b) tuple of target color channels (0..255).
+      elapsed_ms: Milliseconds elapsed since last tick.
+      smoothing_ms: Exponential filter time constant in milliseconds.
+
+    Returns:
+      A list of 3 floats [r, g, b] representing smoothed color values.
+    """
+    if current_rgb is None:
+        return [float(c) for c in target_rgb]
+    if elapsed_ms <= 0 or smoothing_ms <= 0:
+        return [float(c) for c in target_rgb]
+    alpha = min(1.0, elapsed_ms / smoothing_ms)
+    return [
+        c + (t - c) * alpha
+        for c, t in zip(current_rgb, target_rgb)
+    ]
+
+
 def update_deadband(error_degrees, active, start_degrees, stop_degrees):
     """Apply dual-threshold start/stop hysteresis.
 

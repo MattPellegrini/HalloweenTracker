@@ -11,8 +11,8 @@ from tmc2209 import (REG_IOIN, TMC2209, build_read_packet, build_write_packet,
 from stepper import StepperAxis
 from tracking import (TargetSelector, assign_targets, choose_two_targets,
                       eye_target_hue, hsv_to_rgb, slew_step_rate,
-                      smooth_toward_target, tracking_step_rate,
-                      update_deadband)
+                      smooth_color, smooth_toward_target, tracking_step_rate,
+                      update_deadband, update_lock_hysteresis)
 
 
 def word(value):
@@ -609,12 +609,48 @@ class TMC2209Tests(unittest.TestCase):
         self.assertEqual(packet[7], uart_crc(packet[:7]))
 
     def test_eye_indicator_colors_configured(self):
-        self.assertEqual(config.EYE_OFF, (0, 0, 0))
-        self.assertNotEqual(config.EYE_TRACKING, config.EYE_OFF)
-        self.assertNotEqual(config.EYE_LOCKED, config.EYE_OFF)
-        self.assertNotEqual(config.EYE_TRACKING, config.EYE_LOCKED)
-        self.assertEqual(config.EYE_LOCKED, (180, 0, 0))
-        self.assertEqual(config.EYE_TRACKING, (180, 75, 0))
+        self.assertEqual(config.EYE_ASLEEP, (1, 0, 2))
+        self.assertEqual(config.EYE_OFF, config.EYE_ASLEEP)
+        self.assertEqual(config.EYE_SEEKING, (0, 160, 130))
+        self.assertEqual(config.EYE_TRACKING, config.EYE_SEEKING)
+        self.assertEqual(config.EYE_LOCKED, (180, 45, 0))
+        self.assertNotEqual(config.EYE_SEEKING, config.EYE_LOCKED)
+        self.assertNotEqual(config.EYE_SEEKING, config.EYE_ASLEEP)
+        self.assertNotEqual(config.EYE_LOCKED, config.EYE_ASLEEP)
+
+    def test_lock_hysteresis_prevents_flicker(self):
+        enter_deg = 2.0
+        exit_deg = 8.0
+        # Start unlocked (seeking) at 15 deg error
+        locked = False
+        locked = update_lock_hysteresis(15.0, locked, enter_deg, exit_deg)
+        self.assertFalse(locked)
+        # Moving closer (5 deg) stays unlocked because > enter_deg
+        locked = update_lock_hysteresis(5.0, locked, enter_deg, exit_deg)
+        self.assertFalse(locked)
+        # Entering lock zone (<= 2.0 deg) acquires lock
+        locked = update_lock_hysteresis(1.8, locked, enter_deg, exit_deg)
+        self.assertTrue(locked)
+        # Small tracking adjustments (e.g. 4.0 deg, -6.5 deg) keep lock without flickering
+        locked = update_lock_hysteresis(4.0, locked, enter_deg, exit_deg)
+        self.assertTrue(locked)
+        locked = update_lock_hysteresis(-6.5, locked, enter_deg, exit_deg)
+        self.assertTrue(locked)
+        # Moving past exit_deg (> 8.0 deg) breaks lock back to seeking
+        locked = update_lock_hysteresis(8.5, locked, enter_deg, exit_deg)
+        self.assertFalse(locked)
+
+    def test_smooth_color_blending(self):
+        start = [0.0, 160.0, 130.0]
+        target = (180, 45, 0)
+        # Half time constant step (125 ms / 250 ms -> alpha = 0.5)
+        mid = smooth_color(start, target, 125, 250)
+        self.assertAlmostEqual(mid[0], 90.0)
+        self.assertAlmostEqual(mid[1], 102.5)
+        self.assertAlmostEqual(mid[2], 65.0)
+        # Seeded from None jumps directly to target
+        seeded = smooth_color(None, (1, 0, 2), 20, 250)
+        self.assertEqual(seeded, [1.0, 0.0, 2.0])
 
     def test_hsv_to_rgb_conversion(self):
         # Pure red

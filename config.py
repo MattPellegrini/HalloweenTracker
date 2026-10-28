@@ -97,16 +97,27 @@ TRACKERS = (
 
 # NeoPixel WS2812B eye indicators
 NEOPIXEL_COUNT = 2              # Number of LEDs per tracker (one per eye/indicator socket)
-EYE_BRIGHTNESS = 180            # Peak eye brightness (0..255; 180 is rich without washing out)
-EYE_LOCKED_HUE_DEG = 0.0        # Hue (deg) when locked on target (0.0 = Red)
-EYE_SEEKING_HUE_DEG = 25.0      # Hue (deg) when seeking target at large angles (25.0 = warm amber/orange)
-EYE_SEEKING_ERROR_DEG = 15.0    # Pointing error (deg) at which eye color reaches full seeking hue
-EYE_COLOR_SMOOTHING_MS = 250    # Time constant (ms) for exponential eye color smoothing
 
-EYE_OFF = (0, 0, 0)             # Off when sleeping / idle / target lost
-EYE_LOCKED = (EYE_BRIGHTNESS, 0, 0)  # Subdued red when target is settled / locked in deadband
-EYE_TRACKING = (EYE_BRIGHTNESS, int(round(EYE_BRIGHTNESS * (EYE_SEEKING_HUE_DEG / 60.0))), 0)  # Warm amber (180, 75, 0)
+# Eye colors (RGB):
+# - EYE_ASLEEP: Dimmest visible purple when sleeping / idle / target lost (1 PWM red, 2 PWM blue)
+# - EYE_SEEKING: Ghostly green-blue (Minas Morgul spectral cyan-green) while hunting for target
+# - EYE_LOCKED: Fiery red-orange when locked on target
+EYE_ASLEEP = (1, 0, 2)          # Dimmest possible purple
+EYE_OFF = EYE_ASLEEP            # Backward-compatible alias for sleeping / idle eyes
+EYE_SEEKING = (0, 160, 130)     # Ghostly green-blue (Minas Morgul)
+EYE_TRACKING = EYE_SEEKING      # Backward-compatible alias for EYE_SEEKING
+EYE_LOCKED = (180, 45, 0)       # Fiery red-orange
 EYE_RED = EYE_LOCKED            # Backward-compatible alias for EYE_LOCKED
+
+# Eye lock hysteresis thresholds (dual-threshold state machine to prevent color flicker):
+# - Enters locked state (red-orange) when pointing error drops within EYE_LOCK_ENTER_DEG (2.0 deg).
+# - Remains locked during minor tracking adjustments until error exceeds EYE_LOCK_EXIT_DEG (8.0 deg),
+#   allowing the skull to move slightly without breaking lock or flickering colors.
+# - If error exceeds EYE_LOCK_EXIT_DEG, returns to seeking (ghostly green-blue).
+# - If target is lost (> TARGET_LOST_MS), returns to asleep (dimmest purple).
+EYE_LOCK_ENTER_DEG = 2.0        # Error threshold (deg) to acquire lock (switches to red-orange)
+EYE_LOCK_EXIT_DEG = 8.0         # Error threshold (deg) to lose lock (returns to seeking green-blue)
+EYE_COLOR_SMOOTHING_MS = 250    # Time constant (ms) for exponential eye color transitions
 
 # TMC2209 driver sensing parameters (used to compute current scale registers)
 TMC_SENSE_RESISTOR_OHMS = 0.11  # Current sense resistor on BTT V1.3 (R110 = 0.11 Ohm)

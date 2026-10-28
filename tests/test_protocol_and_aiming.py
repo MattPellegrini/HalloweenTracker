@@ -180,11 +180,14 @@ class TargetSelectorTests(unittest.TestCase):
         # Below the 3-degree gate, feed-forward is ignored: rate stays at the
         # minimum despite the high bearing rate.
         self.assertEqual(small, 40)
-        # Just above the gate, feed-forward contributes 45 * 8.89 * 0.65 = 260
-        # pps while the error term for a 3.0-degree error is still small.
+        # Just above the gate, additive feed-forward (45 * 8.89 * 0.65 = 260 pps)
+        # is added to the proportional error_rate (~213 pps) so the tracker both
+        # matches target speed and actively closes the lag.
+        error_only = tracking_step_rate(3.0, 0, 40, 1600, 25, 1.5, 0.8,
+                                        steps_per_degree, 0.65)
         above_gate = tracking_step_rate(3.0, 45, 40, 1600, 25, 1.5, 0.8,
                                         steps_per_degree, 0.65)
-        self.assertEqual(above_gate, 260)
+        self.assertEqual(above_gate, error_only + 260)
 
     def test_deadband_has_separate_start_and_stop_thresholds(self):
         self.assertFalse(update_deadband(2.4, False, 2.5, 1.5))

@@ -148,13 +148,13 @@ TRACKING_DEADBAND_START_DEG = 1.5
 TRACKING_DEADBAND_STOP_DEG = 0.5
 
 # Speed shaping and feed-forward parameters:
-TRACKING_FULL_SPEED_ERROR_DEG = 20.0     # Pointing error (deg) at which speed reaches MAX_STEP_RATE
-TRACKING_ERROR_SPEED_EXPONENT = 1.1       # Exponent for error-to-speed curve (near-linear = snappier catchup)
-TRACKING_FEEDFORWARD_GAIN = 0.85          # Target velocity feed-forward gain (pacing moving targets)
-TRACKING_FEEDFORWARD_MIN_ERROR_DEG = 1.8  # Error threshold (deg) before feed-forward activates
+TRACKING_FULL_SPEED_ERROR_DEG = 12.0     # Pointing error (deg) at which speed reaches MAX_STEP_RATE
+TRACKING_ERROR_SPEED_EXPONENT = 1.0       # Exponent for error-to-speed curve (linear = strong catchup at small lag)
+TRACKING_FEEDFORWARD_GAIN = 1.0           # Target velocity feed-forward gain (1:1 pacing with walking speed)
+TRACKING_FEEDFORWARD_MIN_ERROR_DEG = 1.0  # Error threshold (deg) before feed-forward activates
 TRACKING_STEP_RATE_SLEW_PPS_S = 14000     # Max acceleration/deceleration rate (pulses/s^2; ~1575 deg/s^2)
-TRACKING_RATE_FILTER_ALPHA = 0.35         # Low-pass filter weight for target angular rate estimation
-TRACKING_TARGET_SMOOTHING_MS = 150        # Time constant (ms) for exponential target angle smoothing
+TRACKING_RATE_FILTER_ALPHA = 0.5          # Low-pass filter weight for target angular rate estimation
+TRACKING_TARGET_SMOOTHING_MS = 60         # Time constant (ms) for exponential target angle smoothing
 MAX_TRACKING_BEARING_RATE_DEG_S = 90.0    # Clamp on target angular speed to reject sensor noise jumps
 
 # TODO testing out these for snappier motion tuning (all or some subset at a time)

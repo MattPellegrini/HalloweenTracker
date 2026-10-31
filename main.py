@@ -242,14 +242,18 @@ class Tracker:
         yaw = clamp(yaw, self.yaw_min_deg, self.yaw_max_deg)
         self.last_raw_yaw = yaw
 
-        # Calculate target angular speed (bearing rate in deg/s) for feed-forward
+        # Calculate signed target angular speed (bearing rate in deg/s) for feed-forward.
+        # Filtering the signed rate allows zero-mean back-and-forth radar jitter on a
+        # stationary target to cancel out toward 0 deg/s instead of rectifying into
+        # phantom motion speed.
         if self.last_bearing_ms is not None and self.last_bearing_yaw is not None:
             bearing_elapsed_ms = time.ticks_diff(now_ms, self.last_bearing_ms)
             if 0 < bearing_elapsed_ms <= 250:
-                yaw_rate = min(
-                    abs(yaw - self.last_bearing_yaw) * 1000.0 /
-                    bearing_elapsed_ms,
-                    config.MAX_TRACKING_BEARING_RATE_DEG_S)
+                raw_yaw_rate = ((yaw - self.last_bearing_yaw) * 1000.0 /
+                                bearing_elapsed_ms)
+                yaw_rate = clamp(raw_yaw_rate,
+                                 -config.MAX_TRACKING_BEARING_RATE_DEG_S,
+                                 config.MAX_TRACKING_BEARING_RATE_DEG_S)
                 alpha = config.TRACKING_RATE_FILTER_ALPHA
                 self.filtered_yaw_rate += alpha * (
                     yaw_rate - self.filtered_yaw_rate)
@@ -399,9 +403,16 @@ class Tracker:
                 desired_rate = getattr(config, "PARK_STEP_RATE", 250)
                 max_slew = getattr(config, "PARK_STEP_RATE_SLEW_PPS_S", 1000)
             elif getattr(config, "ENABLE_SPEED_SHAPING", True):
+                # Only apply feed-forward when the target is moving in the same
+                # direction as the current pointing error (chasing a receding target).
+                effective_yaw_rate = (
+                    abs(self.filtered_yaw_rate)
+                    if (error_degrees * self.filtered_yaw_rate) > 0.0
+                    else 0.0
+                )
                 desired_rate = tracking_step_rate(
                     error_degrees,
-                    self.filtered_yaw_rate,
+                    effective_yaw_rate,
                     config.MIN_TRACKING_STEP_RATE,
                     config.MAX_STEP_RATE,
                     config.TRACKING_FULL_SPEED_ERROR_DEG,
@@ -409,7 +420,7 @@ class Tracker:
                     config.TRACKING_ERROR_SPEED_EXPONENT,
                     self.axis.steps_per_degree,
                     config.TRACKING_FEEDFORWARD_GAIN,
-                    getattr(config, "TRACKING_FEEDFORWARD_MIN_ERROR_DEG", 3.0),
+                    getattr(config, "TRACKING_FEEDFORWARD_MIN_ERROR_DEG", 2.5),
                 )
                 max_slew = config.TRACKING_STEP_RATE_SLEW_PPS_S
             else:

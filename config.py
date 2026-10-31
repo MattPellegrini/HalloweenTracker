@@ -100,11 +100,11 @@ NEOPIXEL_COUNT = 2              # Number of LEDs per tracker (one per eye/indica
 
 # Eye colors (RGB):
 # - EYE_ASLEEP: Dimmest visible purple when sleeping / idle / target lost (1 PWM red, 2 PWM blue)
-# - EYE_SEEKING: Ghostly green-blue (Minas Morgul spectral cyan-green) while hunting for target
+# - EYE_SEEKING: Ghostly green-blue (Minas Morgul spectral green with a hint of blue) while hunting
 # - EYE_LOCKED: Deep blood red (almost pure red with a touch of warm orange) when locked on target
 EYE_ASLEEP = (1, 0, 2)          # Dimmest possible purple
 EYE_OFF = EYE_ASLEEP            # Backward-compatible alias for sleeping / idle eyes
-EYE_SEEKING = (0, 160, 130)     # Ghostly green-blue (Minas Morgul)
+EYE_SEEKING = (0, 175, 95)      # Ghostly green-blue (Minas Morgul, slightly more green)
 EYE_TRACKING = EYE_SEEKING      # Backward-compatible alias for EYE_SEEKING
 EYE_LOCKED = (180, 6, 0)        # Deep red with subtle warm hint
 EYE_RED = EYE_LOCKED            # Backward-compatible alias for EYE_LOCKED
@@ -142,19 +142,20 @@ PARK_STEP_RATE = 250            # Slow, reluctant return rate when target lost (
 PARK_STEP_RATE_SLEW_PPS_S = 1000  # Acceleration/deceleration rate for gentle park return (pulses/s^2)
 
 # Micro-hysteresis deadband:
-# Widened to 1.5 deg start / 0.5 deg stop to absorb LD2450 sensor noise and
-# target breathing fluctuations without jittering back and forth at rest.
+# - Start threshold (1.5 deg) ignores stationary radar breathing/jitter at rest.
+# - Stop threshold (0.2 deg, ~2 microsteps) lets the motor glide all the way onto the
+#   smoothed target once moving, avoiding premature cutoffs and stop-go skipping.
 TRACKING_DEADBAND_START_DEG = 1.5
-TRACKING_DEADBAND_STOP_DEG = 0.5
+TRACKING_DEADBAND_STOP_DEG = 0.2
 
 # Speed shaping and feed-forward parameters:
-TRACKING_FULL_SPEED_ERROR_DEG = 12.0     # Pointing error (deg) at which speed reaches MAX_STEP_RATE
-TRACKING_ERROR_SPEED_EXPONENT = 1.0       # Exponent for error-to-speed curve (linear = strong catchup at small lag)
-TRACKING_FEEDFORWARD_GAIN = 1.0           # Target velocity feed-forward gain (1:1 pacing with walking speed)
-TRACKING_FEEDFORWARD_MIN_ERROR_DEG = 1.0  # Error threshold (deg) before feed-forward activates
-TRACKING_STEP_RATE_SLEW_PPS_S = 14000     # Max acceleration/deceleration rate (pulses/s^2; ~1575 deg/s^2)
-TRACKING_RATE_FILTER_ALPHA = 0.5          # Low-pass filter weight for target angular rate estimation
-TRACKING_TARGET_SMOOTHING_MS = 60         # Time constant (ms) for exponential target angle smoothing
+TRACKING_FULL_SPEED_ERROR_DEG = 16.0     # Pointing error (deg) at which speed reaches MAX_STEP_RATE
+TRACKING_ERROR_SPEED_EXPONENT = 1.6       # Progressive curve (>1.0 floats slowly on small errors, fast on large)
+TRACKING_FEEDFORWARD_GAIN = 0.85          # Target velocity feed-forward gain (paces moving targets without overtaking)
+TRACKING_FEEDFORWARD_MIN_ERROR_DEG = 2.5  # Error (deg) where feed-forward reaches full strength (ramps smoothly below this)
+TRACKING_STEP_RATE_SLEW_PPS_S = 9000      # Max acceleration/deceleration rate (pulses/s^2; ~1012 deg/s^2)
+TRACKING_RATE_FILTER_ALPHA = 0.35         # Low-pass filter weight for signed target angular rate estimation
+TRACKING_TARGET_SMOOTHING_MS = 140        # Time constant (ms) bridging 100 ms (10 Hz) radar frames smoothly
 MAX_TRACKING_BEARING_RATE_DEG_S = 90.0    # Clamp on target angular speed to reject sensor noise jumps
 
 # TODO testing out these for snappier motion tuning (all or some subset at a time)

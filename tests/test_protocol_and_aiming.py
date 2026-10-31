@@ -217,7 +217,7 @@ class TargetSelectorTests(unittest.TestCase):
     def test_motion_speed_and_park_return_configuration(self):
         # 1778 pps is ~200 deg/s at 1/16 microstepping (3200 steps/rev)
         self.assertEqual(config.MAX_STEP_RATE, 1778)
-        self.assertEqual(config.TRACKING_STEP_RATE_SLEW_PPS_S, 14000)
+        self.assertEqual(config.TRACKING_STEP_RATE_SLEW_PPS_S, 9000)
         # Park return is intentionally slow and reluctant
         self.assertLess(config.PARK_STEP_RATE, config.MAX_STEP_RATE)
         self.assertEqual(config.PARK_STEP_RATE, 250)
@@ -614,7 +614,7 @@ class TMC2209Tests(unittest.TestCase):
     def test_eye_indicator_colors_configured(self):
         self.assertEqual(config.EYE_ASLEEP, (1, 0, 2))
         self.assertEqual(config.EYE_OFF, config.EYE_ASLEEP)
-        self.assertEqual(config.EYE_SEEKING, (0, 160, 130))
+        self.assertEqual(config.EYE_SEEKING, (0, 175, 95))
         self.assertEqual(config.EYE_TRACKING, config.EYE_SEEKING)
         self.assertEqual(config.EYE_LOCKED, (180, 6, 0))
         self.assertEqual(config.EYE_LOCK_ENTER_DEG, 1.0)

@@ -142,20 +142,19 @@ PARK_STEP_RATE = 250            # Slow, reluctant return rate when target lost (
 PARK_STEP_RATE_SLEW_PPS_S = 1000  # Acceleration/deceleration rate for gentle park return (pulses/s^2)
 
 # Micro-hysteresis deadband:
-# - Start threshold (1.5 deg) ignores stationary radar breathing/jitter at rest.
-# - Stop threshold (0.2 deg, ~2 microsteps) lets the motor glide all the way onto the
-#   smoothed target once moving, avoiding premature cutoffs and stop-go skipping.
+# Widened to 1.5 deg start / 0.5 deg stop to absorb LD2450 sensor noise and
+# target breathing fluctuations without jittering back and forth at rest.
 TRACKING_DEADBAND_START_DEG = 1.5
-TRACKING_DEADBAND_STOP_DEG = 0.2
+TRACKING_DEADBAND_STOP_DEG = 0.5
 
 # Speed shaping and feed-forward parameters:
 TRACKING_FULL_SPEED_ERROR_DEG = 16.0     # Pointing error (deg) at which speed reaches MAX_STEP_RATE
-TRACKING_ERROR_SPEED_EXPONENT = 1.6       # Progressive curve (>1.0 floats slowly on small errors, fast on large)
-TRACKING_FEEDFORWARD_GAIN = 0.85          # Target velocity feed-forward gain (paces moving targets without overtaking)
-TRACKING_FEEDFORWARD_MIN_ERROR_DEG = 2.5  # Error (deg) where feed-forward reaches full strength (ramps smoothly below this)
-TRACKING_STEP_RATE_SLEW_PPS_S = 9000      # Max acceleration/deceleration rate (pulses/s^2; ~1012 deg/s^2)
-TRACKING_RATE_FILTER_ALPHA = 0.35         # Low-pass filter weight for signed target angular rate estimation
-TRACKING_TARGET_SMOOTHING_MS = 140        # Time constant (ms) bridging 100 ms (10 Hz) radar frames smoothly
+TRACKING_ERROR_SPEED_EXPONENT = 1.15      # Exponent for error-to-speed curve (smooth low-end float, linear catchup)
+TRACKING_FEEDFORWARD_GAIN = 0.88          # Target velocity feed-forward gain (paces moving targets without overtaking)
+TRACKING_FEEDFORWARD_MIN_ERROR_DEG = 1.8  # Error threshold (deg) before feed-forward activates (above 1.5 deg start deadband)
+TRACKING_STEP_RATE_SLEW_PPS_S = 14000     # Max acceleration/deceleration rate (pulses/s^2; ~1575 deg/s^2)
+TRACKING_RATE_FILTER_ALPHA = 0.35         # Low-pass filter weight for target angular rate estimation
+TRACKING_TARGET_SMOOTHING_MS = 105        # Time constant (ms) bridging 100 ms (10 Hz) radar frames with minimal lag
 MAX_TRACKING_BEARING_RATE_DEG_S = 90.0    # Clamp on target angular speed to reject sensor noise jumps
 
 # TODO testing out these for snappier motion tuning (all or some subset at a time)

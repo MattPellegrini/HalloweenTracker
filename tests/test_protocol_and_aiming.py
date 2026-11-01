@@ -180,14 +180,15 @@ class TargetSelectorTests(unittest.TestCase):
         # Below the 3-degree gate, feed-forward is ignored: rate stays at the
         # minimum despite the high bearing rate.
         self.assertEqual(small, 40)
-        # Just above the gate, additive feed-forward (45 * 8.89 * 0.65 = 260 pps)
-        # is added to the proportional error_rate (~213 pps) so the tracker both
-        # matches target speed and actively closes the lag.
+        # Just above the gate, feedforward_rate (260 pps) + 0.30 * error_rate
+        # (~64 pps) gives 324 pps so the tracker matches target speed and gently
+        # reels in lag without over-speeding into a mid-frame stall.
         error_only = tracking_step_rate(3.0, 0, 40, 1600, 25, 1.5, 0.8,
                                         steps_per_degree, 0.65)
         above_gate = tracking_step_rate(3.0, 45, 40, 1600, 25, 1.5, 0.8,
                                         steps_per_degree, 0.65)
-        self.assertEqual(above_gate, error_only + 260)
+        self.assertGreater(above_gate, error_only)
+        self.assertEqual(above_gate, 324)
 
     def test_deadband_has_separate_start_and_stop_thresholds(self):
         self.assertFalse(update_deadband(2.4, False, 2.5, 1.5))
@@ -217,7 +218,7 @@ class TargetSelectorTests(unittest.TestCase):
     def test_motion_speed_and_park_return_configuration(self):
         # 1778 pps is ~200 deg/s at 1/16 microstepping (3200 steps/rev)
         self.assertEqual(config.MAX_STEP_RATE, 1778)
-        self.assertEqual(config.TRACKING_STEP_RATE_SLEW_PPS_S, 9000)
+        self.assertEqual(config.TRACKING_STEP_RATE_SLEW_PPS_S, 14000)
         # Park return is intentionally slow and reluctant
         self.assertLess(config.PARK_STEP_RATE, config.MAX_STEP_RATE)
         self.assertEqual(config.PARK_STEP_RATE, 250)

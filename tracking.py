@@ -135,23 +135,18 @@ def tracking_step_rate(error_degrees, bearing_rate_deg_s, minimum_rate,
     error_rate = (minimum_rate + (maximum_rate - minimum_rate) *
                   (normalized_error ** rate_exponent))
 
-    # Feed-forward ramps smoothly from 0 at minimum_error_degrees up to full
-    # strength at feedforward_min_error_deg. This avoids a discontinuous speed
-    # cliff when catching up to a moving target (which otherwise causes catch-up,
-    # stall, and surge skipping) while keeping small stationary micro-adjustments
-    # slow and gentle.
-    abs_err = abs(error_degrees)
-    if abs_err <= minimum_error_degrees:
-        ff_scale = 0.0
-    elif abs_err >= feedforward_min_error_deg or feedforward_min_error_deg <= minimum_error_degrees:
-        ff_scale = 1.0
+    # Feed-forward is only activated when error >= threshold to prevent noise jitter.
+    # When active, blend 30% of error_rate onto feedforward_rate so the tracker
+    # actively reels in steady-state walking lag without surging past the 10 Hz
+    # smoothed target and stalling mid-frame.
+    feedforward_active = abs(error_degrees) >= feedforward_min_error_deg
+    if feedforward_active:
+        feedforward_rate = (abs(bearing_rate_deg_s) * steps_per_degree *
+                            feedforward_gain) + (0.30 * error_rate)
     else:
-        ff_scale = ((abs_err - minimum_error_degrees) /
-                    (feedforward_min_error_deg - minimum_error_degrees))
-    feedforward_rate = (abs(bearing_rate_deg_s) * steps_per_degree *
-                        feedforward_gain * ff_scale)
+        feedforward_rate = 0.0
 
-    requested_rate = error_rate + feedforward_rate
+    requested_rate = max(minimum_rate, error_rate, feedforward_rate)
     return min(maximum_rate, max(minimum_rate, round(requested_rate)))
 
 
